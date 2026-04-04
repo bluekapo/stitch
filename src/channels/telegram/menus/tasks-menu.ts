@@ -59,6 +59,7 @@ export function createTasksMenu(taskService: TaskService): {
 			return range;
 		})
 		.text('<< Back to Hub', async (ctx) => {
+			ctx.menu.nav('hub');
 			await ctx.editMessageText(
 				renderHubView({
 					status: 'idle',
@@ -68,7 +69,6 @@ export function createTasksMenu(taskService: TaskService): {
 				}),
 				{ parse_mode: 'HTML' },
 			);
-			ctx.menu.nav('hub');
 		});
 
 	const taskDetailMenu = new Menu<StitchContext>('task-detail')
