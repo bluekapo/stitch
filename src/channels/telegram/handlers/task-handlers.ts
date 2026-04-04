@@ -17,6 +17,18 @@ export function registerTaskHandlers(bot: Bot<StitchContext>, taskService: TaskS
 		await ctx.reply(`Task created: ${task.name} (#${task.id})`, { parse_mode: 'HTML' });
 	});
 
+	// add! <name> (essential/locked task)
+	bot.hears(/^add! (.+)$/i, async (ctx) => {
+		const rawName = ctx.match[1].trim();
+		const parsed = createTaskSchema.safeParse({ name: rawName, isEssential: true });
+		if (!parsed.success) {
+			await ctx.reply('Task name must be 1-200 characters.', { parse_mode: 'HTML' });
+			return;
+		}
+		const task = taskService.create(parsed.data);
+		await ctx.reply(`🔒 Essential task created: ${task.name} (#${task.id})`, { parse_mode: 'HTML' });
+	});
+
 	// list
 	bot.hears(/^list$/i, async (ctx) => {
 		const allTasks = taskService.list();

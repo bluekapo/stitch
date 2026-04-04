@@ -2,7 +2,7 @@ import { Menu } from '@grammyjs/menu';
 import type { TaskService } from '../../../core/task-service.js';
 import type { TaskListItem } from '../../../types/task.js';
 import type { StitchContext } from '../types.js';
-import { renderDayPlanView, renderHubView, renderTasksView } from '../views.js';
+import { renderDayPlanView, renderTasksView } from '../views.js';
 
 export function createHubMenu(taskService: TaskService): Menu<StitchContext> {
 	const menu = new Menu<StitchContext>('hub')

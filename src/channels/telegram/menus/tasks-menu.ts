@@ -42,10 +42,10 @@ export function createTasksMenu(taskService: TaskService): {
 							try {
 								const detail = taskService.getTaskDetail(Number(ctx.match));
 								if (detail) {
+									ctx.menu.nav('task-detail');
 									await ctx.editMessageText(renderTaskDetailView(detail), {
 										parse_mode: 'HTML',
 									});
-									ctx.menu.nav('task-detail');
 								}
 							} catch (err) {
 								await ctx.editMessageText(String((err as Error).message), {
