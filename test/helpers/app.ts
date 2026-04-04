@@ -16,7 +16,7 @@ const testConfig: AppConfig = {
 	DATABASE_URL: ':memory:',
 	WHISPER_SERVER_URL: 'http://localhost:8081',
 	STT_PROVIDER: 'mock' as const,
-	TELEGRAM_BOT_TOKEN: 'test:fake-token',
+	TELEGRAM_BOT_TOKEN: '',
 	TELEGRAM_ALLOWED_USER_ID: undefined,
 };
 

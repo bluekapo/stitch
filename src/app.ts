@@ -1,5 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
+import type { Bot } from 'grammy';
+import { setupTelegramBot } from './channels/telegram/index.js';
+import type { StitchContext } from './channels/telegram/types.js';
 import { type AppConfig, loadConfig } from './config.js';
 import { createDb, type StitchDb } from './db/index.js';
 import { createLlmProvider, createSttProvider } from './providers/index.js';
@@ -12,6 +15,7 @@ export interface AppOptions {
 	llmProvider?: LlmProvider;
 	sttProvider?: SttProvider;
 	db?: StitchDb;
+	telegramBot?: Bot<StitchContext>;
 }
 
 export function buildApp(options: AppOptions = {}): FastifyInstance {
@@ -37,6 +41,15 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	// Create and decorate STT provider
 	const sttProvider = options.sttProvider ?? createSttProvider(config);
 	app.decorate('sttProvider', sttProvider);
+
+	// Telegram bot
+	if (options.telegramBot) {
+		app.decorate('bot', options.telegramBot);
+	} else if (config.TELEGRAM_BOT_TOKEN) {
+		const { bot, hub } = setupTelegramBot(config);
+		app.decorate('bot', bot);
+		app.decorate('hub', hub);
+	}
 
 	app.register(healthRoutes);
 

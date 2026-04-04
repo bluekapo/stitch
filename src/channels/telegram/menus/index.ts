@@ -1,8 +1,8 @@
-import type { Bot } from 'grammy';
 import type { Menu } from '@grammyjs/menu';
+import type { Bot } from 'grammy';
 import type { StitchContext } from '../types.js';
-import { createHubMenu } from './hub-menu.js';
 import { createDayPlanMenu } from './day-plan-menu.js';
+import { createHubMenu } from './hub-menu.js';
 import { createTasksMenu } from './tasks-menu.js';
 
 export interface RegisteredMenus {

@@ -1,5 +1,5 @@
-import type { Api } from 'grammy';
 import type { Menu } from '@grammyjs/menu';
+import type { Api } from 'grammy';
 import type { StitchContext } from './types.js';
 
 export interface HubRef {
@@ -39,15 +39,10 @@ export class HubManager {
 	async updateHub(text: string, menu?: Menu<StitchContext>): Promise<void> {
 		if (!this.ref) return;
 		try {
-			await this.api.editMessageText(
-				this.ref.chatId,
-				this.ref.messageId,
-				text,
-				{
-					parse_mode: 'HTML',
-					reply_markup: menu,
-				},
-			);
+			await this.api.editMessageText(this.ref.chatId, this.ref.messageId, text, {
+				parse_mode: 'HTML',
+				reply_markup: menu,
+			});
 		} catch (err: unknown) {
 			if (err instanceof Error && err.message.includes('message is not modified')) {
 				return; // Content unchanged, ignore

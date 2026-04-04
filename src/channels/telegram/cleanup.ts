@@ -3,10 +3,7 @@ import type { StitchContext } from './types.js';
 
 export const CLEANUP_DELAY_MS = 3000;
 
-export async function autoCleanup(
-	ctx: StitchContext,
-	next: NextFunction,
-): Promise<void> {
+export async function autoCleanup(ctx: StitchContext, next: NextFunction): Promise<void> {
 	await next();
 
 	if (!ctx.message?.text) return;

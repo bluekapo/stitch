@@ -41,6 +41,6 @@ export function setupTelegramBot(config: AppConfig): TelegramChannel {
 	return { bot, hub };
 }
 
-export { HubManager } from './hub.js';
 export type { HubRef } from './hub.js';
+export { HubManager } from './hub.js';
 export type { StitchContext } from './types.js';

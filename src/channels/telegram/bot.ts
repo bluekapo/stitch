@@ -1,5 +1,5 @@
-import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
+import { Bot } from 'grammy';
 import type { StitchContext } from './types.js';
 
 export interface TelegramBotOptions {
