@@ -149,10 +149,10 @@ export function createTasksMenu(taskService: TaskService): {
 						try {
 							taskService.update(task.id, { status: 'completed' });
 							const allTasks = taskService.list() as TaskListItem[];
+							ctx.menu.nav('tasks');
 							await ctx.editMessageText(renderTasksView(allTasks), {
 								parse_mode: 'HTML',
 							});
-							ctx.menu.nav('tasks');
 						} catch (err) {
 							await ctx.editMessageText(String((err as Error).message), {
 								parse_mode: 'HTML',
@@ -169,10 +169,10 @@ export function createTasksMenu(taskService: TaskService): {
 						try {
 							taskService.update(task.id, { status: 'completed' });
 							const allTasks = taskService.list() as TaskListItem[];
+							ctx.menu.nav('tasks');
 							await ctx.editMessageText(renderTasksView(allTasks), {
 								parse_mode: 'HTML',
 							});
-							ctx.menu.nav('tasks');
 						} catch (err) {
 							await ctx.editMessageText(String((err as Error).message), {
 								parse_mode: 'HTML',
@@ -189,10 +189,10 @@ export function createTasksMenu(taskService: TaskService): {
 						try {
 							taskService.delete(task.id);
 							const allTasks = taskService.list() as TaskListItem[];
+							ctx.menu.nav('tasks');
 							await ctx.editMessageText(renderTasksView(allTasks), {
 								parse_mode: 'HTML',
 							});
-							ctx.menu.nav('tasks');
 						} catch (err) {
 							await ctx.editMessageText(String((err as Error).message), {
 								parse_mode: 'HTML',
@@ -206,10 +206,10 @@ export function createTasksMenu(taskService: TaskService): {
 		})
 		.text('<< Back to Tasks', async (ctx) => {
 			const allTasks = taskService.list() as TaskListItem[];
+			ctx.menu.nav('tasks');
 			await ctx.editMessageText(renderTasksView(allTasks), {
 				parse_mode: 'HTML',
 			});
-			ctx.menu.nav('tasks');
 		});
 
 	return { tasksMenu, taskDetailMenu };
