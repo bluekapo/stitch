@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import type { z } from 'zod';
 import type { LlmCompletionOptions, LlmProvider } from './llm.js';
 
 export class MockLlmProvider implements LlmProvider {
@@ -9,14 +9,10 @@ export class MockLlmProvider implements LlmProvider {
 		this.fixtures.set(schemaName, data);
 	}
 
-	async complete<T extends z.ZodType>(
-		options: LlmCompletionOptions<T>,
-	): Promise<z.infer<T>> {
+	async complete<T extends z.ZodType>(options: LlmCompletionOptions<T>): Promise<z.infer<T>> {
 		const fixture = this.fixtures.get(options.schemaName);
 		if (!fixture) {
-			throw new Error(
-				`No mock fixture registered for schema: ${options.schemaName}`,
-			);
+			throw new Error(`No mock fixture registered for schema: ${options.schemaName}`);
 		}
 		const result = options.schema.safeParse(fixture);
 		if (!result.success) {

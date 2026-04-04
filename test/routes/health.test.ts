@@ -1,8 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildTestApp } from '../helpers/app.js';
-import { MockLlmProvider } from '../../src/providers/mock.js';
 import type { LlmProvider } from '../../src/providers/llm.js';
+import { buildTestApp } from '../helpers/app.js';
 
 describe('Health routes', () => {
 	let app: FastifyInstance;
@@ -59,9 +58,8 @@ describe('Health routes', () => {
 			}),
 		};
 
-		const unhealthyApp = buildTestApp();
-		// Decorate with unhealthy provider before ready
-		unhealthyApp.decorate('llmProvider', unhealthyProvider);
+		// Inject unhealthy provider via buildTestApp's llmProvider parameter
+		const unhealthyApp = buildTestApp(undefined, unhealthyProvider);
 		await unhealthyApp.ready();
 
 		const response = await unhealthyApp.inject({

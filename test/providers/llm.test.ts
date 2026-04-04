@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MockLlmProvider } from '../../src/providers/mock.js';
-import {
-	TaskAnalysisSchema,
-	toResponseFormat,
-} from '../../src/schemas/llm.js';
+import { TaskAnalysisSchema, toResponseFormat } from '../../src/schemas/llm.js';
 
 const validFixture = {
 	taskName: 'Write unit tests',
@@ -73,10 +70,7 @@ describe('toResponseFormat', () => {
 		expect(format.json_schema.schema).toHaveProperty('type', 'object');
 		expect(format.json_schema.schema).toHaveProperty('properties');
 
-		const props = format.json_schema.schema.properties as Record<
-			string,
-			unknown
-		>;
+		const props = format.json_schema.schema.properties as Record<string, unknown>;
 		expect(props).toHaveProperty('taskName');
 		expect(props).toHaveProperty('estimatedMinutes');
 		expect(props).toHaveProperty('category');

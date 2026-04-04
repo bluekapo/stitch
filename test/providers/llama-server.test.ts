@@ -1,11 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
-import type { LlmProvider } from '../../src/providers/llm.js';
-import { LlamaServerProvider } from '../../src/providers/llama-server.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AppConfig } from '../../src/config.js';
 import { createLlmProvider } from '../../src/providers/index.js';
+import { LlamaServerProvider } from '../../src/providers/llama-server.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { TaskAnalysisSchema } from '../../src/schemas/llm.js';
-import type { AppConfig } from '../../src/config.js';
 
 const validTaskAnalysis = {
 	taskName: 'Write unit tests',
@@ -13,6 +11,13 @@ const validTaskAnalysis = {
 	category: 'work',
 	subtasks: ['Setup test framework', 'Write test cases'],
 };
+
+/** Override the OpenAI client on a LlamaServerProvider for testing */
+function overrideClient(provider: LlamaServerProvider, createMock: ReturnType<typeof vi.fn>): void {
+	(provider as unknown as { client: unknown }).client = {
+		chat: { completions: { create: createMock } },
+	};
+}
 
 describe('LlamaServerProvider', () => {
 	describe('healthCheck', () => {
@@ -75,22 +80,16 @@ describe('LlamaServerProvider', () => {
 				maxRetries: 2,
 			});
 
-			// Mock the OpenAI client's chat.completions.create method
 			const createMock = vi
 				.fn()
 				.mockResolvedValueOnce({
 					choices: [{ message: { content: '' } }],
 				})
 				.mockResolvedValueOnce({
-					choices: [
-						{ message: { content: JSON.stringify(validTaskAnalysis) } },
-					],
+					choices: [{ message: { content: JSON.stringify(validTaskAnalysis) } }],
 				});
 
-			// Access the private client and override create
-			(provider as any).client = {
-				chat: { completions: { create: createMock } },
-			};
+			overrideClient(provider, createMock);
 
 			const result = await provider.complete({
 				messages: [{ role: 'user', content: 'Analyze task' }],
@@ -119,19 +118,13 @@ describe('LlamaServerProvider', () => {
 			const createMock = vi
 				.fn()
 				.mockResolvedValueOnce({
-					choices: [
-						{ message: { content: JSON.stringify(invalidResponse) } },
-					],
+					choices: [{ message: { content: JSON.stringify(invalidResponse) } }],
 				})
 				.mockResolvedValueOnce({
-					choices: [
-						{ message: { content: JSON.stringify(validTaskAnalysis) } },
-					],
+					choices: [{ message: { content: JSON.stringify(validTaskAnalysis) } }],
 				});
 
-			(provider as any).client = {
-				chat: { completions: { create: createMock } },
-			};
+			overrideClient(provider, createMock);
 
 			const result = await provider.complete({
 				messages: [{ role: 'user', content: 'Analyze task' }],
@@ -158,14 +151,10 @@ describe('LlamaServerProvider', () => {
 			};
 
 			const createMock = vi.fn().mockResolvedValue({
-				choices: [
-					{ message: { content: JSON.stringify(invalidResponse) } },
-				],
+				choices: [{ message: { content: JSON.stringify(invalidResponse) } }],
 			});
 
-			(provider as any).client = {
-				chat: { completions: { create: createMock } },
-			};
+			overrideClient(provider, createMock);
 
 			await expect(
 				provider.complete({
@@ -190,9 +179,7 @@ describe('LlamaServerProvider', () => {
 				choices: [{ message: { content: '' } }],
 			});
 
-			(provider as any).client = {
-				chat: { completions: { create: createMock } },
-			};
+			overrideClient(provider, createMock);
 
 			await expect(
 				provider.complete({
