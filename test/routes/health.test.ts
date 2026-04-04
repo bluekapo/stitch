@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LlmProvider } from '../../src/providers/llm.js';
+import type { SttProvider } from '../../src/providers/stt.js';
 import { buildTestApp } from '../helpers/app.js';
 
 describe('Health routes', () => {
@@ -65,6 +66,45 @@ describe('Health routes', () => {
 		const response = await unhealthyApp.inject({
 			method: 'GET',
 			url: '/health/llm',
+		});
+
+		expect(response.statusCode).toBe(503);
+		const body = response.json();
+		expect(body.status).toBe('unavailable');
+		expect(body.error).toBe('Server unreachable');
+
+		await unhealthyApp.close();
+	});
+
+	it('GET /health/stt returns 200 with mock provider', async () => {
+		const response = await app.inject({
+			method: 'GET',
+			url: '/health/stt',
+		});
+
+		expect(response.statusCode).toBe(200);
+		const body = response.json();
+		expect(body.status).toBe('ok');
+		expect(body.provider).toBe('mock');
+	});
+
+	it('GET /health/stt returns 503 when provider reports unhealthy', async () => {
+		const unhealthySttProvider: SttProvider = {
+			transcribe: async () => {
+				throw new Error('not implemented');
+			},
+			healthCheck: async () => ({
+				ok: false,
+				error: 'Server unreachable',
+			}),
+		};
+
+		const unhealthyApp = buildTestApp(undefined, { sttProvider: unhealthySttProvider });
+		await unhealthyApp.ready();
+
+		const response = await unhealthyApp.inject({
+			method: 'GET',
+			url: '/health/stt',
 		});
 
 		expect(response.statusCode).toBe(503);
