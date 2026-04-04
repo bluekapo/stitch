@@ -20,6 +20,7 @@ beforeEach(() => {
 	delete process.env.LLAMA_SERVER_URL;
 	delete process.env.LLAMA_MODEL_NAME;
 	delete process.env.LLM_MAX_RETRIES;
+	delete process.env.DATABASE_URL;
 });
 
 afterEach(() => {
@@ -56,6 +57,11 @@ describe('loadConfig() — default values', () => {
 	it('returns LLM_MAX_RETRIES=2 when LLM_MAX_RETRIES is not set', () => {
 		const config = loadConfig();
 		expect(config.LLM_MAX_RETRIES).toBe(2);
+	});
+
+	it('returns DATABASE_URL=./data/stitch.db when DATABASE_URL is not set', () => {
+		const config = loadConfig();
+		expect(config.DATABASE_URL).toBe('./data/stitch.db');
 	});
 });
 
@@ -94,6 +100,12 @@ describe('loadConfig() — env var overrides', () => {
 		process.env.LLM_MAX_RETRIES = '5';
 		const config = loadConfig();
 		expect(config.LLM_MAX_RETRIES).toBe(5);
+	});
+
+	it('respects DATABASE_URL override', () => {
+		process.env.DATABASE_URL = '/tmp/test.db';
+		const config = loadConfig();
+		expect(config.DATABASE_URL).toBe('/tmp/test.db');
 	});
 });
 
