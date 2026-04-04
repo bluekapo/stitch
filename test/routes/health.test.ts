@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { LlmProvider } from '../../src/providers/llm.js';
 import { buildTestApp } from '../helpers/app.js';
 
 describe('Health routes', () => {
@@ -31,5 +32,46 @@ describe('Health routes', () => {
 		});
 
 		expect(response.headers['content-type']).toMatch(/application\/json/);
+	});
+
+	it('GET /health/llm returns 200 with mock provider', async () => {
+		const response = await app.inject({
+			method: 'GET',
+			url: '/health/llm',
+		});
+
+		expect(response.statusCode).toBe(200);
+		const body = response.json();
+		expect(body.status).toBe('ok');
+		expect(body.provider).toBe('mock');
+	});
+
+	it('GET /health/llm returns 503 when provider reports unhealthy', async () => {
+		// Create an unhealthy mock provider
+		const unhealthyProvider: LlmProvider = {
+			complete: async () => {
+				throw new Error('not implemented');
+			},
+			healthCheck: async () => ({
+				ok: false,
+				error: 'Server unreachable',
+			}),
+		};
+
+		// Inject unhealthy provider via buildTestApp's llmProvider parameter
+		const unhealthyApp = buildTestApp(undefined, unhealthyProvider);
+		await unhealthyApp.ready();
+
+		const response = await unhealthyApp.inject({
+			method: 'GET',
+			url: '/health/llm',
+		});
+
+		expect(response.statusCode).toBe(503);
+		const body = response.json();
+		expect(body.status).toBe('unavailable');
+		expect(body.error).toBe('Server unreachable');
+
+		await unhealthyApp.close();
 	});
 });

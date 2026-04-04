@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import type { AppConfig } from '../../src/config.js';
+import type { LlmProvider } from '../../src/providers/llm.js';
 
 const testConfig: AppConfig = {
 	PORT: 0,
@@ -11,6 +12,12 @@ const testConfig: AppConfig = {
 	LLM_MAX_RETRIES: 1,
 };
 
-export function buildTestApp(overrides?: Partial<AppConfig>): FastifyInstance {
-	return buildApp({ config: { ...testConfig, ...overrides } });
+export function buildTestApp(
+	overrides?: Partial<AppConfig>,
+	llmProvider?: LlmProvider,
+): FastifyInstance {
+	return buildApp({
+		config: { ...testConfig, ...overrides },
+		llmProvider,
+	});
 }
