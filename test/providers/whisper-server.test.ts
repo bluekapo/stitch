@@ -8,9 +8,11 @@ describe('WhisperServerProvider', () => {
 		});
 
 		it('sends POST to baseURL/v1/audio/transcriptions with FormData containing file blob', async () => {
-			const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-				new Response(JSON.stringify({ text: 'hello world' }), { status: 200 }),
-			);
+			const fetchSpy = vi
+				.spyOn(globalThis, 'fetch')
+				.mockResolvedValueOnce(
+					new Response(JSON.stringify({ text: 'hello world' }), { status: 200 }),
+				);
 
 			const provider = new WhisperServerProvider({
 				baseURL: 'http://localhost:8081',
@@ -47,9 +49,9 @@ describe('WhisperServerProvider', () => {
 				baseURL: 'http://localhost:8081',
 			});
 
-			await expect(
-				provider.transcribe(Buffer.from('bad-audio'), 'audio/wav'),
-			).rejects.toThrow('HTTP 400');
+			await expect(provider.transcribe(Buffer.from('bad-audio'), 'audio/wav')).rejects.toThrow(
+				'HTTP 400',
+			);
 		});
 	});
 
@@ -86,9 +88,7 @@ describe('WhisperServerProvider', () => {
 		});
 
 		it('returns { ok: false } with error message when server is unreachable', async () => {
-			vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
-				new Error('fetch failed'),
-			);
+			vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('fetch failed'));
 
 			const provider = new WhisperServerProvider({
 				baseURL: 'http://localhost:8081',

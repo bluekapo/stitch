@@ -11,16 +11,19 @@ export class WhisperServerProvider implements SttProvider {
 		// Pitfall 4: whisper-server uses filename extension for format detection
 		const ext = mimeType === 'audio/wav' ? 'wav' : 'audio';
 		// Copy Buffer into a plain ArrayBuffer for Blob compatibility (avoids TS SharedArrayBuffer issue)
-		const arrayBuffer = audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength) as ArrayBuffer;
+		const arrayBuffer = audio.buffer.slice(
+			audio.byteOffset,
+			audio.byteOffset + audio.byteLength,
+		) as ArrayBuffer;
 		const blob = new Blob([arrayBuffer], { type: mimeType });
 		const form = new FormData();
 		form.append('file', blob, `audio.${ext}`);
 		form.append('response_format', 'json');
 
-		const response = await fetch(
-			`${this.baseURL}/v1/audio/transcriptions`,
-			{ method: 'POST', body: form },
-		);
+		const response = await fetch(`${this.baseURL}/v1/audio/transcriptions`, {
+			method: 'POST',
+			body: form,
+		});
 
 		if (!response.ok) {
 			throw new Error(`Whisper transcription failed: HTTP ${response.status}`);
