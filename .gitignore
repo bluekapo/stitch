@@ -138,8 +138,12 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Stitch-specific
+data/
 temp/
 debugging/
+
+# Local working files
 .claude/
 tasks/
 .planning/
