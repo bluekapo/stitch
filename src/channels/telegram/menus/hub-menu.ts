@@ -7,20 +7,17 @@ import { renderDayPlanView, renderHubView, renderTasksView } from '../views.js';
 export function createHubMenu(taskService: TaskService): Menu<StitchContext> {
 	const menu = new Menu<StitchContext>('hub')
 		.text('Day Plan', async (ctx) => {
-			await ctx.editMessageText(renderDayPlanView(), { parse_mode: 'HTML' });
 			ctx.menu.nav('day-plan');
+			await ctx.editMessageText(renderDayPlanView(), { parse_mode: 'HTML' });
 		})
 		.text('Tasks', async (ctx) => {
 			const allTasks = taskService.list() as TaskListItem[];
-			await ctx.editMessageText(renderTasksView(allTasks), { parse_mode: 'HTML' });
 			ctx.menu.nav('tasks');
+			await ctx.editMessageText(renderTasksView(allTasks), { parse_mode: 'HTML' });
 		})
 		.row()
 		.text('Status', async (ctx) => {
-			await ctx.editMessageText(
-				renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null }),
-				{ parse_mode: 'HTML' },
-			);
+			await ctx.answerCallbackQuery('Status: idle');
 		});
 
 	return menu;
