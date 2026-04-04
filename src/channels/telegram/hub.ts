@@ -12,7 +12,12 @@ export class HubManager {
 
 	constructor(private api: Api) {}
 
-	async sendHub(chatId: number, text: string, menu: Menu<StitchContext>): Promise<void> {
+	async sendHub(
+		chatId: number,
+		text: string,
+		menu: Menu<StitchContext>,
+		ctx?: StitchContext,
+	): Promise<void> {
 		// If hub exists, try to edit in place (prevents duplicate hubs on repeated /start)
 		if (this.ref && this.ref.chatId === chatId) {
 			try {
@@ -26,10 +31,20 @@ export class HubManager {
 			}
 		}
 
-		const msg = await this.api.sendMessage(chatId, text, {
-			reply_markup: menu,
-			parse_mode: 'HTML',
-		});
+		// grammY menus must be sent through ctx.reply — bot.api bypasses the
+		// menu's transformer that installs the keyboard fingerprint.
+		let msg: { message_id: number };
+		if (ctx) {
+			msg = await ctx.reply(text, {
+				reply_markup: menu,
+				parse_mode: 'HTML',
+			});
+		} else {
+			msg = await this.api.sendMessage(chatId, text, {
+				reply_markup: menu,
+				parse_mode: 'HTML',
+			});
+		}
 		this.ref = { chatId, messageId: msg.message_id };
 		await this.api.pinChatMessage(chatId, msg.message_id, {
 			disable_notification: true,

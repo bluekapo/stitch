@@ -41,7 +41,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 
 		const chatId = ctx.chat.id;
 		const text = renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null });
-		await hub.sendHub(chatId, text, hubMenu);
+		await hub.sendHub(chatId, text, hubMenu, ctx);
 	});
 
 	// Text command handlers (registered AFTER /start, BEFORE autoCleanup per Pitfall 1)
