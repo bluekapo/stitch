@@ -1,0 +1,66 @@
+import type { Api } from 'grammy';
+import type { Menu } from '@grammyjs/menu';
+import type { StitchContext } from './types.js';
+
+export interface HubRef {
+	chatId: number;
+	messageId: number;
+}
+
+export class HubManager {
+	private ref: HubRef | null = null;
+
+	constructor(private api: Api) {}
+
+	async sendHub(chatId: number, text: string, menu: Menu<StitchContext>): Promise<void> {
+		// If hub exists, try to edit in place (prevents duplicate hubs on repeated /start)
+		if (this.ref && this.ref.chatId === chatId) {
+			try {
+				await this.api.editMessageText(this.ref.chatId, this.ref.messageId, text, {
+					parse_mode: 'HTML',
+					reply_markup: menu,
+				});
+				return;
+			} catch {
+				// Message was deleted or too old -- fall through to send new one
+			}
+		}
+
+		const msg = await this.api.sendMessage(chatId, text, {
+			reply_markup: menu,
+			parse_mode: 'HTML',
+		});
+		this.ref = { chatId, messageId: msg.message_id };
+		await this.api.pinChatMessage(chatId, msg.message_id, {
+			disable_notification: true,
+		});
+	}
+
+	async updateHub(text: string, menu?: Menu<StitchContext>): Promise<void> {
+		if (!this.ref) return;
+		try {
+			await this.api.editMessageText(
+				this.ref.chatId,
+				this.ref.messageId,
+				text,
+				{
+					parse_mode: 'HTML',
+					reply_markup: menu,
+				},
+			);
+		} catch (err: unknown) {
+			if (err instanceof Error && err.message.includes('message is not modified')) {
+				return; // Content unchanged, ignore
+			}
+			throw err;
+		}
+	}
+
+	getRef(): HubRef | null {
+		return this.ref;
+	}
+
+	setRef(ref: HubRef): void {
+		this.ref = ref;
+	}
+}
