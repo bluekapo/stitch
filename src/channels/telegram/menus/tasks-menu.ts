@@ -149,7 +149,8 @@ export function createTasksMenu(taskService: TaskService): {
 						try {
 							taskService.update(task.id, { status: 'completed' });
 							const allTasks = taskService.list() as TaskListItem[];
-							ctx.menu.nav('tasks');
+							// biome-ignore lint: back() required for dynamic submenu nav
+							ctx.menu.back();
 							await ctx.editMessageText(renderTasksView(allTasks), {
 								parse_mode: 'HTML',
 							});
@@ -169,7 +170,8 @@ export function createTasksMenu(taskService: TaskService): {
 						try {
 							taskService.update(task.id, { status: 'completed' });
 							const allTasks = taskService.list() as TaskListItem[];
-							ctx.menu.nav('tasks');
+							// biome-ignore lint: back() required for dynamic submenu nav
+							ctx.menu.back();
 							await ctx.editMessageText(renderTasksView(allTasks), {
 								parse_mode: 'HTML',
 							});
@@ -189,7 +191,8 @@ export function createTasksMenu(taskService: TaskService): {
 						try {
 							taskService.delete(task.id);
 							const allTasks = taskService.list() as TaskListItem[];
-							ctx.menu.nav('tasks');
+							// biome-ignore lint: back() required for dynamic submenu nav
+							ctx.menu.back();
 							await ctx.editMessageText(renderTasksView(allTasks), {
 								parse_mode: 'HTML',
 							});
@@ -206,7 +209,8 @@ export function createTasksMenu(taskService: TaskService): {
 		})
 		.text('<< Back to Tasks', async (ctx) => {
 			const allTasks = taskService.list() as TaskListItem[];
-			ctx.menu.nav('tasks');
+			// biome-ignore lint: back() required for dynamic submenu nav
+			ctx.menu.back();
 			await ctx.editMessageText(renderTasksView(allTasks), {
 				parse_mode: 'HTML',
 			});
