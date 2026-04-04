@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import { type AppConfig, loadConfig } from './config.js';
+import { createDb, type StitchDb } from './db/index.js';
 import { createLlmProvider, createSttProvider } from './providers/index.js';
 import type { LlmProvider } from './providers/llm.js';
 import type { SttProvider } from './providers/stt.js';
@@ -10,6 +11,7 @@ export interface AppOptions {
 	config?: AppConfig;
 	llmProvider?: LlmProvider;
 	sttProvider?: SttProvider;
+	db?: StitchDb;
 }
 
 export function buildApp(options: AppOptions = {}): FastifyInstance {
@@ -27,6 +29,10 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	// Create and decorate LLM provider
 	const llmProvider = options.llmProvider ?? createLlmProvider(config);
 	app.decorate('llmProvider', llmProvider);
+
+	// Database
+	const db = options.db ?? createDb(config.DATABASE_URL);
+	app.decorate('db', db);
 
 	// Create and decorate STT provider
 	const sttProvider = options.sttProvider ?? createSttProvider(config);

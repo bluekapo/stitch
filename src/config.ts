@@ -7,6 +7,7 @@ const envSchema = z.object({
 	LLAMA_MODEL_NAME: z.string().default('qwen3.5-9b'),
 	LLM_PROVIDER: z.enum(['llama-server', 'mock']).default('mock'),
 	LLM_MAX_RETRIES: z.coerce.number().min(0).max(5).default(2),
+	DATABASE_URL: z.string().default('./data/stitch.db'),
 	WHISPER_SERVER_URL: z.string().url().default('http://localhost:8081'),
 	STT_PROVIDER: z.enum(['whisper-server', 'mock']).default('mock'),
 });
