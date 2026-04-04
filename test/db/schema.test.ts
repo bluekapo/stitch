@@ -30,10 +30,7 @@ describe('tasks table -- CRUD operations', () => {
 		const inserted = db.select().from(tasks).all();
 		const taskId = inserted[0].id;
 
-		db.update(tasks)
-			.set({ status: 'completed' })
-			.where(eq(tasks.id, taskId))
-			.run();
+		db.update(tasks).set({ status: 'completed' }).where(eq(tasks.id, taskId)).run();
 
 		const updated = db.select().from(tasks).where(eq(tasks.id, taskId)).all();
 		expect(updated[0].status).toBe('completed');

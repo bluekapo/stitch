@@ -9,10 +9,6 @@ export const tasks = sqliteTable('tasks', {
 	})
 		.notNull()
 		.default('pending'),
-	createdAt: text('created_at')
-		.notNull()
-		.default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at')
-		.notNull()
-		.default(sql`(datetime('now'))`),
+	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });

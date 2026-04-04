@@ -58,8 +58,8 @@ describe('Health routes', () => {
 			}),
 		};
 
-		// Inject unhealthy provider via buildTestApp's llmProvider parameter
-		const unhealthyApp = buildTestApp(undefined, unhealthyProvider);
+		// Inject unhealthy provider via buildTestApp's providers parameter
+		const unhealthyApp = buildTestApp(undefined, { llmProvider: unhealthyProvider });
 		await unhealthyApp.ready();
 
 		const response = await unhealthyApp.inject({
