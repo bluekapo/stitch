@@ -7,10 +7,34 @@ import { registerMenus } from '../../../src/channels/telegram/menus/index.js';
 import { createTestBot } from '../../helpers/telegram.js';
 import { createTestDb } from '../../helpers/db.js';
 import { TaskService } from '../../../src/core/task-service.js';
+import { renderDayPlanView, renderHubView, renderTasksView } from '../../../src/channels/telegram/views.js';
 
 function makeTaskService() {
 	const db = createTestDb();
 	return new TaskService(db);
+}
+
+/** Minimal context object accepted by @grammyjs/menu render() for static menus */
+const renderCtx = { chatId: 123, msgId: 1, match: '' };
+
+/** Build a fake callback_query update from a callback_data string */
+function callbackQueryUpdate(data: string) {
+	return {
+		update_id: Math.floor(Math.random() * 1e9),
+		callback_query: {
+			id: String(Date.now()),
+			from: { id: 123, is_bot: false, first_name: 'Test' },
+			chat_instance: '1',
+			data,
+			message: {
+				message_id: 1,
+				from: { id: 1, is_bot: true, first_name: 'TestBot' },
+				chat: { id: 123, type: 'private' as const },
+				date: Math.floor(Date.now() / 1000),
+				text: 'old text',
+			},
+		},
+	};
 }
 
 describe('Menu factories', () => {
@@ -44,38 +68,63 @@ describe('registerMenus', () => {
 
 	it('Day Plan button triggers editMessageText with day plan content', async () => {
 		const { bot, outgoing } = createTestBot();
-		registerMenus(bot, makeTaskService());
-		bot.command('start', async (ctx) => {
-			await ctx.reply('hub', { reply_markup: undefined });
-		});
+		const { hubMenu } = registerMenus(bot, makeTaskService());
 
-		// Initialize bot middleware
-		await bot.init();
+		// Render hub menu to get the real callback_data for the "Day Plan" button (row 0, col 0)
+		const rendered = await hubMenu.render(renderCtx);
+		const dayPlanBtn = rendered[0][0] as { callback_data: string; text: string };
+		expect(dayPlanBtn.text).toBe('Day Plan');
 
-		// The menu plugin uses its own internal callback data format.
-		// Since testing the exact callback data is brittle (depends on menu internals),
-		// we verify that the menu structure is correct by checking the factories
-		// create valid Menu instances and registerMenus wires them correctly.
-		// Integration testing of actual button navigation requires a running bot.
-		expect(outgoing).toBeDefined();
+		// Fire the button press through the bot
+		await bot.handleUpdate(callbackQueryUpdate(dayPlanBtn.callback_data) as never);
+
+		// Assert editMessageText was called with the day plan view content
+		const editCalls = outgoing.filter((c) => c.method === 'editMessageText');
+		expect(editCalls.length).toBeGreaterThanOrEqual(1);
+		const editPayload = editCalls[editCalls.length - 1].payload as Record<string, unknown>;
+		expect(editPayload.text).toBe(renderDayPlanView());
+		expect(editPayload.parse_mode).toBe('HTML');
 	});
 
 	it('Tasks button triggers editMessageText with tasks content', async () => {
-		const { bot } = createTestBot();
-		registerMenus(bot, makeTaskService());
-		await bot.init();
+		const { bot, outgoing } = createTestBot();
+		const taskService = makeTaskService();
+		const { hubMenu } = registerMenus(bot, taskService);
 
-		// Same reasoning as Day Plan test -- menu button integration is verified
-		// at the component level (views produce correct content, menus exist with correct IDs)
-		expect(true).toBe(true);
+		// Render hub menu to get the real callback_data for the "Tasks" button (row 0, col 1)
+		const rendered = await hubMenu.render(renderCtx);
+		const tasksBtn = rendered[0][1] as { callback_data: string; text: string };
+		expect(tasksBtn.text).toBe('Tasks');
+
+		// Fire the button press through the bot
+		await bot.handleUpdate(callbackQueryUpdate(tasksBtn.callback_data) as never);
+
+		// Assert editMessageText was called with the tasks view content
+		const editCalls = outgoing.filter((c) => c.method === 'editMessageText');
+		expect(editCalls.length).toBeGreaterThanOrEqual(1);
+		const editPayload = editCalls[editCalls.length - 1].payload as Record<string, unknown>;
+		expect(editPayload.text).toBe(renderTasksView(taskService.list()));
+		expect(editPayload.parse_mode).toBe('HTML');
 	});
 
 	it('Back to Hub button triggers editMessageText with hub content', async () => {
-		const { bot } = createTestBot();
-		registerMenus(bot, makeTaskService());
-		await bot.init();
+		const { bot, outgoing } = createTestBot();
+		const { dayPlanMenu } = registerMenus(bot, makeTaskService());
 
-		// Menu navigation back to hub is verified at component level
-		expect(true).toBe(true);
+		// Render the day-plan submenu to get the callback_data for "<< Back to Hub" (row 0, col 0)
+		const rendered = await dayPlanMenu.render(renderCtx);
+		const backBtn = rendered[0][0] as { callback_data: string; text: string };
+		expect(backBtn.text).toBe('<< Back to Hub');
+
+		// Fire the button press through the bot
+		await bot.handleUpdate(callbackQueryUpdate(backBtn.callback_data) as never);
+
+		// Assert editMessageText was called with the hub view content
+		const editCalls = outgoing.filter((c) => c.method === 'editMessageText');
+		expect(editCalls.length).toBeGreaterThanOrEqual(1);
+		const editPayload = editCalls[editCalls.length - 1].payload as Record<string, unknown>;
+		const expectedHubContent = renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null });
+		expect(editPayload.text).toBe(expectedHubContent);
+		expect(editPayload.parse_mode).toBe('HTML');
 	});
 });
