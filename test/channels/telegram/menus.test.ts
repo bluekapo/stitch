@@ -5,11 +5,17 @@ import { createDayPlanMenu } from '../../../src/channels/telegram/menus/day-plan
 import { createTasksMenu } from '../../../src/channels/telegram/menus/tasks-menu.js';
 import { registerMenus } from '../../../src/channels/telegram/menus/index.js';
 import { createTestBot } from '../../helpers/telegram.js';
-import type { StitchContext } from '../../../src/channels/telegram/types.js';
+import { createTestDb } from '../../helpers/db.js';
+import { TaskService } from '../../../src/core/task-service.js';
+
+function makeTaskService() {
+	const db = createTestDb();
+	return new TaskService(db);
+}
 
 describe('Menu factories', () => {
 	it('createHubMenu returns a Menu instance with id "hub"', () => {
-		const menu = createHubMenu();
+		const menu = createHubMenu(makeTaskService());
 		expect(menu).toBeInstanceOf(Menu);
 	});
 
@@ -18,25 +24,27 @@ describe('Menu factories', () => {
 		expect(menu).toBeInstanceOf(Menu);
 	});
 
-	it('createTasksMenu returns a Menu instance with id "tasks"', () => {
-		const menu = createTasksMenu();
-		expect(menu).toBeInstanceOf(Menu);
+	it('createTasksMenu returns tasksMenu and taskDetailMenu as Menu instances', () => {
+		const { tasksMenu, taskDetailMenu } = createTasksMenu(makeTaskService());
+		expect(tasksMenu).toBeInstanceOf(Menu);
+		expect(taskDetailMenu).toBeInstanceOf(Menu);
 	});
 });
 
 describe('registerMenus', () => {
-	it('returns hubMenu, dayPlanMenu, tasksMenu', () => {
+	it('returns hubMenu, dayPlanMenu, tasksMenu, and taskDetailMenu', () => {
 		const { bot } = createTestBot();
-		const menus = registerMenus(bot);
+		const menus = registerMenus(bot, makeTaskService());
 
 		expect(menus.hubMenu).toBeInstanceOf(Menu);
 		expect(menus.dayPlanMenu).toBeInstanceOf(Menu);
 		expect(menus.tasksMenu).toBeInstanceOf(Menu);
+		expect(menus.taskDetailMenu).toBeInstanceOf(Menu);
 	});
 
 	it('Day Plan button triggers editMessageText with day plan content', async () => {
 		const { bot, outgoing } = createTestBot();
-		registerMenus(bot);
+		registerMenus(bot, makeTaskService());
 		bot.command('start', async (ctx) => {
 			await ctx.reply('hub', { reply_markup: undefined });
 		});
@@ -54,7 +62,7 @@ describe('registerMenus', () => {
 
 	it('Tasks button triggers editMessageText with tasks content', async () => {
 		const { bot } = createTestBot();
-		registerMenus(bot);
+		registerMenus(bot, makeTaskService());
 		await bot.init();
 
 		// Same reasoning as Day Plan test -- menu button integration is verified
@@ -64,7 +72,7 @@ describe('registerMenus', () => {
 
 	it('Back to Hub button triggers editMessageText with hub content', async () => {
 		const { bot } = createTestBot();
-		registerMenus(bot);
+		registerMenus(bot, makeTaskService());
 		await bot.init();
 
 		// Menu navigation back to hub is verified at component level

@@ -37,7 +37,10 @@ export class TaskService {
 	) {
 		const task = this.getById(id);
 		if (!task) throw new Error('Task not found.');
-		if (task.isEssential) throw new Error('Cannot modify a locked task.');
+		// Essential tasks block name/description changes but allow status changes (e.g., completion)
+		if (task.isEssential && (data.name !== undefined || data.description !== undefined)) {
+			throw new Error('Cannot modify a locked task.');
+		}
 		this.db
 			.update(tasks)
 			.set({ ...data, updatedAt: sql`(datetime('now'))` })

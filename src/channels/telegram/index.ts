@@ -1,5 +1,6 @@
 import type { Bot } from 'grammy';
 import type { AppConfig } from '../../config.js';
+import type { TaskService } from '../../core/task-service.js';
 import { createBot } from './bot.js';
 import { autoCleanup } from './cleanup.js';
 import { HubManager } from './hub.js';
@@ -12,14 +13,21 @@ export interface TelegramChannel {
 	hub: HubManager;
 }
 
-export function setupTelegramBot(config: AppConfig): TelegramChannel {
+export interface TelegramSetupOptions {
+	config: AppConfig;
+	taskService: TaskService;
+}
+
+export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {
+	const { config, taskService } = options;
+
 	const bot = createBot({
 		token: config.TELEGRAM_BOT_TOKEN,
 		allowedUserId: config.TELEGRAM_ALLOWED_USER_ID,
 	});
 
 	const hub = new HubManager(bot.api);
-	const { hubMenu } = registerMenus(bot);
+	const { hubMenu } = registerMenus(bot, taskService);
 
 	// /start command: send or refresh hub
 	bot.command('start', async (ctx) => {

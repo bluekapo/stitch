@@ -4,6 +4,7 @@ import type { Bot } from 'grammy';
 import { setupTelegramBot } from './channels/telegram/index.js';
 import type { StitchContext } from './channels/telegram/types.js';
 import { type AppConfig, loadConfig } from './config.js';
+import { TaskService } from './core/task-service.js';
 import { createDb, type StitchDb } from './db/index.js';
 import { createLlmProvider, createSttProvider } from './providers/index.js';
 import type { LlmProvider } from './providers/llm.js';
@@ -42,11 +43,15 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	const sttProvider = options.sttProvider ?? createSttProvider(config);
 	app.decorate('sttProvider', sttProvider);
 
+	// Task service
+	const taskService = new TaskService(db);
+	app.decorate('taskService', taskService);
+
 	// Telegram bot
 	if (options.telegramBot) {
 		app.decorate('bot', options.telegramBot);
 	} else if (config.TELEGRAM_BOT_TOKEN) {
-		const { bot, hub } = setupTelegramBot(config);
+		const { bot, hub } = setupTelegramBot({ config, taskService });
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);
 	}
