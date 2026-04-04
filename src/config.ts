@@ -10,6 +10,8 @@ const envSchema = z.object({
 	DATABASE_URL: z.string().default('./data/stitch.db'),
 	WHISPER_SERVER_URL: z.string().url().default('http://localhost:8081'),
 	STT_PROVIDER: z.enum(['whisper-server', 'mock']).default('mock'),
+	TELEGRAM_BOT_TOKEN: z.string().min(1),
+	TELEGRAM_ALLOWED_USER_ID: z.coerce.number().optional(),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

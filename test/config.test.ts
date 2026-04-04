@@ -14,6 +14,9 @@ describe('loadConfig', () => {
 		delete process.env.LLM_MAX_RETRIES;
 		delete process.env.WHISPER_SERVER_URL;
 		delete process.env.STT_PROVIDER;
+		delete process.env.TELEGRAM_ALLOWED_USER_ID;
+		// TELEGRAM_BOT_TOKEN is required (no default), must be set for loadConfig to succeed
+		process.env.TELEGRAM_BOT_TOKEN = 'test:fake-token';
 	});
 
 	afterEach(() => {
