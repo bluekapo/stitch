@@ -3,6 +3,7 @@ import type { AppConfig } from '../../config.js';
 import type { TaskService } from '../../core/task-service.js';
 import { createBot } from './bot.js';
 import { autoCleanup } from './cleanup.js';
+import { registerTaskHandlers } from './handlers/task-handlers.js';
 import { HubManager } from './hub.js';
 import { registerMenus } from './menus/index.js';
 import type { StitchContext } from './types.js';
@@ -43,7 +44,10 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		await hub.sendHub(chatId, text, hubMenu);
 	});
 
-	// Auto-cleanup for text messages (registered AFTER menus per Pitfall 6)
+	// Text command handlers (registered AFTER /start, BEFORE autoCleanup per Pitfall 1)
+	registerTaskHandlers(bot, taskService);
+
+	// Auto-cleanup for text messages (catch-all, registered LAST per Pitfall 1 & 6)
 	bot.on('message:text', autoCleanup);
 
 	return { bot, hub };
