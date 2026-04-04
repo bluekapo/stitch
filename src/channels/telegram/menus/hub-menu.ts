@@ -9,13 +9,13 @@ export function createHubMenu(): Menu<StitchContext> {
 			ctx.menu.nav('day-plan');
 		})
 		.text('Tasks', async (ctx) => {
-			await ctx.editMessageText(renderTasksView(), { parse_mode: 'HTML' });
+			await ctx.editMessageText(renderTasksView([]), { parse_mode: 'HTML' });
 			ctx.menu.nav('tasks');
 		})
 		.row()
 		.text('Status', async (ctx) => {
 			await ctx.editMessageText(
-				renderHubView({ status: 'idle', currentChunk: null, timer: null }),
+				renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null }),
 				{ parse_mode: 'HTML' },
 			);
 		});

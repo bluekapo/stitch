@@ -4,7 +4,7 @@ import { renderHubView } from '../views.js';
 
 export function createTasksMenu(): Menu<StitchContext> {
 	const menu = new Menu<StitchContext>('tasks').text('<< Back to Hub', async (ctx) => {
-		await ctx.editMessageText(renderHubView({ status: 'idle', currentChunk: null, timer: null }), {
+		await ctx.editMessageText(renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null }), {
 			parse_mode: 'HTML',
 		});
 		ctx.menu.nav('hub');

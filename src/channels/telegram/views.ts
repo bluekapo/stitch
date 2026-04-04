@@ -1,7 +1,33 @@
+import type { TaskDetail, TaskListItem } from '../../types/task.js';
+
+export function escapeHtml(text: string): string {
+	return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+export function formatDuration(seconds: number): string {
+	const h = Math.floor(seconds / 3600);
+	const m = Math.floor((seconds % 3600) / 60);
+	const s = seconds % 60;
+	return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+export function formatTime(iso: string): string {
+	const d = new Date(iso);
+	return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+export function formatDateTime(iso: string): string {
+	const d = new Date(iso);
+	const date = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+	const time = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+	return `${date} ${time}`;
+}
+
 export interface HubViewState {
 	status: 'idle' | 'running' | 'overdue' | 'disconnected';
 	currentChunk: string | null;
 	timer: string | null;
+	timerSince: string | null;
 }
 
 export function renderHubView(state: HubViewState): string {
@@ -11,14 +37,23 @@ export function renderHubView(state: HubViewState): string {
 		overdue: '\uD83D\uDFE1 Overdue',
 		disconnected: '\uD83D\uDD34 Disconnected',
 	};
+
+	const timerLine = state.timer
+		? `\u23F1 <code>${escapeHtml(state.timer)}</code>`
+		: '<code>--:--:--</code>';
+
+	const hint = state.timer && state.timerSince
+		? `<i>Timer running since ${state.timerSince}.</i>`
+		: '<i>Ready when you are.</i>';
+
 	return [
 		'<b>-- Stitch Hub --</b>',
 		'',
 		`<b>Status:</b> ${statusIcons[state.status]}`,
 		`<b>Current chunk:</b> ${state.currentChunk ? state.currentChunk : '<i>None</i>'}`,
-		`<b>Timer:</b> ${state.timer ? `<code>${state.timer}</code>` : '<code>--:--:--</code>'}`,
+		`<b>Timer:</b> ${timerLine}`,
 		'',
-		'<i>Ready when you are.</i>',
+		hint,
 	].join('\n');
 }
 
@@ -31,11 +66,67 @@ export function renderDayPlanView(): string {
 	].join('\n');
 }
 
-export function renderTasksView(): string {
-	return [
-		'<b>-- Tasks --</b>',
+export function renderTasksView(tasks: TaskListItem[]): string {
+	if (tasks.length === 0) {
+		return [
+			'<b>-- Tasks --</b>',
+			'',
+			'<i>No tasks yet.</i>',
+			'<i>Send "add Task name" to create one.</i>',
+		].join('\n');
+	}
+	return ['<b>-- Tasks --</b>', '', 'Your tasks:'].join('\n');
+}
+
+export function renderTaskDetailView(task: TaskDetail): string {
+	const lockIndicator = task.isEssential ? ' \uD83D\uDD12' : '';
+	const lines: string[] = [
+		`<b>-- Task #${task.id}${lockIndicator} --</b>`,
 		'',
-		'<i>No tasks yet.</i>',
-		'<i>Task management coming in a future update.</i>',
-	].join('\n');
+		`<b>Name:</b> ${escapeHtml(task.name)}`,
+		`<b>Status:</b> ${task.status}`,
+		`<b>Created:</b> <code>${formatDateTime(task.createdAt)}</code>`,
+	];
+
+	if (task.timerStartedAt) {
+		lines.push('');
+		lines.push(`\u23F1 <b>Timer running since</b> <code>${formatTime(task.timerStartedAt)}</code>`);
+	}
+
+	if (task.postponeCount > 0) {
+		lines.push('');
+		lines.push(`\u21A9 <i>Postponed ${task.postponeCount} times</i>`);
+	}
+
+	if (task.totalDurationSeconds != null) {
+		lines.push('');
+		lines.push(`<b>Total time:</b> <code>${formatDuration(task.totalDurationSeconds)}</code>`);
+	}
+
+	if (task.isEssential) {
+		lines.push('');
+		lines.push('<i>This task is locked and cannot be modified.</i>');
+	}
+
+	return lines.join('\n');
+}
+
+export function renderTaskListText(tasks: TaskListItem[]): string {
+	if (tasks.length === 0) {
+		return 'No tasks. Send "add Task name" to create one.';
+	}
+
+	const statusEmoji: Record<string, string> = {
+		pending: '',
+		active: '\u25B6 ',
+		completed: '\u2705 ',
+		skipped: '\u23ED ',
+	};
+
+	return tasks
+		.map((task, i) => {
+			const prefix = task.isEssential ? '\uD83D\uDD12 ' : statusEmoji[task.status] || '';
+			return `${i + 1}. ${prefix}${task.name} (${task.status})`;
+		})
+		.join('\n');
 }

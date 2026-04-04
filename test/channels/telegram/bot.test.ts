@@ -289,6 +289,7 @@ describe('renderHubView', () => {
 			status: 'idle',
 			currentChunk: null,
 			timer: null,
+			timerSince: null,
 		});
 		expect(result).toContain('Stitch Hub');
 		expect(result).toContain('Status');
@@ -299,6 +300,7 @@ describe('renderHubView', () => {
 			status: 'idle',
 			currentChunk: null,
 			timer: null,
+			timerSince: null,
 		});
 		expect(result).toContain('Idle');
 		expect(result).toContain('--:--:--');
@@ -309,6 +311,7 @@ describe('renderHubView', () => {
 			status: 'running',
 			currentChunk: 'Morning duties',
 			timer: '00:12:34',
+			timerSince: null,
 		});
 		expect(result).toContain('Running');
 		expect(result).toContain('Morning duties');
@@ -330,14 +333,14 @@ describe('renderDayPlanView', () => {
 });
 
 describe('renderTasksView', () => {
-	it('returns string containing "Tasks" and "No tasks yet"', () => {
-		const result = renderTasksView();
+	it('returns string containing "Tasks" and "No tasks yet" when empty', () => {
+		const result = renderTasksView([]);
 		expect(result).toContain('Tasks');
 		expect(result).toContain('No tasks yet');
 	});
 
-	it('produces placeholder text about future updates', () => {
-		const result = renderTasksView();
-		expect(result).toContain('Task management coming in a future update');
+	it('produces hint about creating tasks when empty', () => {
+		const result = renderTasksView([]);
+		expect(result).toContain('Send "add Task name" to create one.');
 	});
 });

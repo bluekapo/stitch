@@ -31,7 +31,7 @@ export function setupTelegramBot(config: AppConfig): TelegramChannel {
 		}
 
 		const chatId = ctx.chat.id;
-		const text = renderHubView({ status: 'idle', currentChunk: null, timer: null });
+		const text = renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null });
 		await hub.sendHub(chatId, text, hubMenu);
 	});
 
