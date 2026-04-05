@@ -25,9 +25,9 @@ describe('DailyPlanService', () => {
 		// Set up a day tree (direct DB insert to avoid LLM call)
 		db.insert(dayTrees).values({
 			tree: {
-				cycles: [
+				branches: [
 					{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
-					{ name: 'Day cycle', startTime: '10:00', endTime: '18:00', isTaskSlot: true },
+					{ name: 'Day branch', startTime: '10:00', endTime: '18:00', isTaskSlot: true },
 					{ name: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
 				],
 			},
@@ -42,18 +42,18 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					cycleName: 'Morning duties', label: 'Morning tasks', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties', label: 'Morning tasks', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
 					tasks: [
 						{ taskId: t1.id, label: 'Exercise', isLocked: false },
 						{ taskId: t2.id, label: 'Shower', isLocked: false },
 					],
 				},
 				{
-					cycleName: 'Day cycle', label: 'Work block 1', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+					branchName: 'Day branch', label: 'Work block 1', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
 					tasks: [{ taskId: t3.id, label: 'Code review', isLocked: true }],
 				},
 				{
-					cycleName: 'Dinner', label: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false,
+					branchName: 'Dinner', label: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false,
 					tasks: [],
 				},
 			],
@@ -65,7 +65,7 @@ describe('DailyPlanService', () => {
 		// Should have 3 chunks
 		expect(result.chunks).toHaveLength(3);
 		expect(result.chunks[0].label).toBe('Morning tasks');
-		expect(result.chunks[0].cycleName).toBe('Morning duties');
+		expect(result.chunks[0].branchName).toBe('Morning duties');
 		expect(result.chunks[1].label).toBe('Work block 1');
 		expect(result.chunks[2].label).toBe('Dinner');
 
@@ -91,7 +91,7 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
 				},
 			],
@@ -115,11 +115,11 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
 				},
 				{
-					cycleName: 'Dinner', label: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false,
+					branchName: 'Dinner', label: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false,
 					tasks: [],
 				},
 			],
@@ -145,7 +145,7 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Critical task', isLocked: true }],
 				},
 			],
@@ -162,7 +162,7 @@ describe('DailyPlanService', () => {
 		expect(tasks[0].taskId).toBe(t1.id);
 	});
 
-	it('LLM can split long cycle into multiple chunks', async () => {
+	it('LLM can split long branch into multiple chunks', async () => {
 		const t1 = taskService.create({ name: 'Task 1' });
 		const t2 = taskService.create({ name: 'Task 2' });
 		const t3 = taskService.create({ name: 'Task 3' });
@@ -170,21 +170,21 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					cycleName: 'Day cycle', label: 'Work block 1', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+					branchName: 'Day branch', label: 'Work block 1', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Task 1', isLocked: false }, { taskId: t2.id, label: 'Task 2', isLocked: false }],
 				},
 				{
-					cycleName: 'Day cycle', label: 'Work block 2', startTime: '14:00', endTime: '18:00', isTaskSlot: true,
+					branchName: 'Day branch', label: 'Work block 2', startTime: '14:00', endTime: '18:00', isTaskSlot: true,
 					tasks: [{ taskId: t3.id, label: 'Task 3', isLocked: false }],
 				},
 			],
-			reasoning: 'Split day cycle into two work blocks.',
+			reasoning: 'Split day branch into two work blocks.',
 		});
 
 		const result = await planService.generatePlan('2026-04-05');
 
-		// Both chunks should have cycleName='Day cycle'
-		const dayCycleChunks = result.chunks.filter(c => c.cycleName === 'Day cycle');
+		// Both chunks should have branchName='Day branch'
+		const dayCycleChunks = result.chunks.filter(c => c.branchName === 'Day branch');
 		expect(dayCycleChunks).toHaveLength(2);
 		expect(dayCycleChunks[0].label).toBe('Work block 1');
 		expect(dayCycleChunks[1].label).toBe('Work block 2');
@@ -196,7 +196,7 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
 					tasks: [
 						{ taskId: t1.id, label: 'Real task', isLocked: false },
 						{ taskId: 999, label: 'Hallucinated task', isLocked: false },
@@ -231,7 +231,7 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
 				},
 			],

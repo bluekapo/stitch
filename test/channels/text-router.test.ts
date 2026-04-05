@@ -8,10 +8,10 @@ import { DayTreeService } from '../../src/core/day-tree-service.js';
 import { dayTrees } from '../../src/db/schema.js';
 
 const SAMPLE_TREE = {
-	cycles: [
+	branches: [
 		{ name: 'Wake up', startTime: '07:00', endTime: '08:00', isTaskSlot: false, items: [{ label: 'Wake up', type: 'fixed' as const }] },
 		{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
-		{ name: 'Day cycle', startTime: '10:00', endTime: '21:00', isTaskSlot: true, items: [{ label: 'Games allowed 16-21', type: 'rule' as const }] },
+		{ name: 'Day branch', startTime: '10:00', endTime: '21:00', isTaskSlot: true, items: [{ label: 'Games allowed 16-21', type: 'rule' as const }] },
 		{ name: 'Dinner', startTime: '21:00', endTime: '21:45', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
 	],
 };

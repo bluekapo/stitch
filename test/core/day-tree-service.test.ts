@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb } from '../helpers/db.js';
-import { DayTreeLlmSchema, DayTreeCycleSchema, DayTreeItemSchema } from '../../src/schemas/day-tree.js';
+import { DayTreeLlmSchema, DayTreeBranchSchema, DayTreeItemSchema } from '../../src/schemas/day-tree.js';
 import { dayTrees } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
 
 const SAMPLE_TREE = {
-	cycles: [
+	branches: [
 		{ name: 'Wake up', startTime: '07:00', endTime: '08:00', isTaskSlot: false, items: [{ label: 'Wake up', type: 'fixed' as const }] },
 		{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
-		{ name: 'Day cycle', startTime: '10:00', endTime: '21:00', isTaskSlot: true, items: [{ label: 'Games allowed 16-21', type: 'rule' as const }] },
+		{ name: 'Day branch', startTime: '10:00', endTime: '21:00', isTaskSlot: true, items: [{ label: 'Games allowed 16-21', type: 'rule' as const }] },
 		{ name: 'Dinner', startTime: '21:00', endTime: '21:45', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
 		{ name: 'Night duties', startTime: '21:45', endTime: '22:30', isTaskSlot: true },
 		{ name: 'Sleep', startTime: '22:30', endTime: '07:00', isTaskSlot: false, items: [{ label: 'Sleep', type: 'fixed' as const }] },
@@ -32,8 +32,8 @@ describe('DayTree schemas', () => {
 		expect(result.success).toBe(false);
 	});
 
-	it('DayTreeCycleSchema validates a cycle with items', () => {
-		const result = DayTreeCycleSchema.safeParse({
+	it('DayTreeBranchSchema validates a branch with items', () => {
+		const result = DayTreeBranchSchema.safeParse({
 			name: 'Wake up',
 			startTime: '07:00',
 			endTime: '08:00',
@@ -43,8 +43,8 @@ describe('DayTree schemas', () => {
 		expect(result.success).toBe(true);
 	});
 
-	it('DayTreeCycleSchema validates a cycle without items', () => {
-		const result = DayTreeCycleSchema.safeParse({
+	it('DayTreeBranchSchema validates a branch without items', () => {
+		const result = DayTreeBranchSchema.safeParse({
 			name: 'Morning duties',
 			startTime: '08:00',
 			endTime: '10:00',
@@ -53,8 +53,8 @@ describe('DayTree schemas', () => {
 		expect(result.success).toBe(true);
 	});
 
-	it('DayTreeCycleSchema rejects cycle missing name', () => {
-		const result = DayTreeCycleSchema.safeParse({
+	it('DayTreeBranchSchema rejects branch missing name', () => {
+		const result = DayTreeBranchSchema.safeParse({
 			startTime: '07:00',
 			endTime: '08:00',
 			isTaskSlot: false,
@@ -66,12 +66,12 @@ describe('DayTree schemas', () => {
 		const result = DayTreeLlmSchema.safeParse(SAMPLE_TREE);
 		expect(result.success).toBe(true);
 		if (result.success) {
-			expect(result.data.cycles).toHaveLength(6);
+			expect(result.data.branches).toHaveLength(6);
 		}
 	});
 
 	it('schema rejects invalid structure', () => {
-		const result = DayTreeLlmSchema.safeParse({ cycles: [{ name: 'x' }] });
+		const result = DayTreeLlmSchema.safeParse({ branches: [{ name: 'x' }] });
 		expect(result.success).toBe(false);
 	});
 });
@@ -95,10 +95,10 @@ describe('DayTreeService', () => {
 	let service: DayTreeService;
 
 	const MODIFIED_TREE = {
-		cycles: [
+		branches: [
 			{ name: 'Wake up', startTime: '07:00', endTime: '08:00', isTaskSlot: false, items: [{ label: 'Wake up', type: 'fixed' as const }] },
 			{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
-			{ name: 'Day cycle', startTime: '10:00', endTime: '20:00', isTaskSlot: true },
+			{ name: 'Day branch', startTime: '10:00', endTime: '20:00', isTaskSlot: true },
 			{ name: 'Dinner', startTime: '20:00', endTime: '20:45', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
 			{ name: 'Night duties', startTime: '20:45', endTime: '22:30', isTaskSlot: true },
 			{ name: 'Sleep', startTime: '22:30', endTime: '07:00', isTaskSlot: false, items: [{ label: 'Sleep', type: 'fixed' as const }] },
@@ -118,12 +118,12 @@ describe('DayTreeService', () => {
 	it('setTree calls LLM and stores tree', async () => {
 		llm.setFixture('day_tree', SAMPLE_TREE);
 		const result = await service.setTree('wake up at 7, morning duties...');
-		expect(result.cycles).toHaveLength(6);
-		expect(result.cycles[0].name).toBe('Wake up');
+		expect(result.branches).toHaveLength(6);
+		expect(result.branches[0].name).toBe('Wake up');
 
 		const stored = service.getTree();
 		expect(stored).toBeDefined();
-		expect(stored!.cycles).toHaveLength(6);
+		expect(stored!.branches).toHaveLength(6);
 	});
 
 	it('setTree replaces existing tree (only one row)', async () => {
@@ -135,7 +135,7 @@ describe('DayTreeService', () => {
 
 		const stored = service.getTree();
 		expect(stored).toBeDefined();
-		expect(stored!.cycles[2].endTime).toBe('20:00');
+		expect(stored!.branches[2].endTime).toBe('20:00');
 
 		// Verify only one row in DB
 		const rows = db.select().from(dayTrees).all();
@@ -149,8 +149,8 @@ describe('DayTreeService', () => {
 		llm.setFixture('day_tree', MODIFIED_TREE);
 		const result = await service.editTree('move dinner to 20:00');
 
-		expect(result.cycles[3].startTime).toBe('20:00');
-		expect(result.cycles[3].name).toBe('Dinner');
+		expect(result.branches[3].startTime).toBe('20:00');
+		expect(result.branches[3].name).toBe('Dinner');
 	});
 
 	it('editTree throws when no tree exists', async () => {
@@ -170,7 +170,7 @@ describe('DayTreeService', () => {
 		const row = service.getTreeRow();
 		expect(row).toBeDefined();
 		expect(typeof row!.id).toBe('number');
-		expect(row!.tree.cycles).toHaveLength(6);
+		expect(row!.tree.branches).toHaveLength(6);
 	});
 
 	it('LLM calls use correct options', async () => {

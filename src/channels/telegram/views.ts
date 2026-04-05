@@ -61,11 +61,11 @@ export function renderHubView(state: HubViewState): string {
 
 export function renderTreeView(tree: DayTree): string {
 	const lines: string[] = ['<b>-- Day Tree --</b>', ''];
-	for (const cycle of tree.cycles) {
-		const slotIcon = cycle.isTaskSlot ? '[tasks]' : '[fixed]';
-		lines.push(`<b>${escapeHtml(cycle.name)}</b> (${cycle.startTime}-${cycle.endTime}) ${slotIcon}`);
-		if (cycle.items?.length) {
-			for (const item of cycle.items) {
+	for (const branch of tree.branches) {
+		const slotIcon = branch.isTaskSlot ? '[tasks]' : '[fixed]';
+		lines.push(`<b>${escapeHtml(branch.name)}</b> (${branch.startTime}-${branch.endTime}) ${slotIcon}`);
+		if (branch.items?.length) {
+			for (const item of branch.items) {
 				const icon = item.type === 'fixed' ? '  -' : '  *';
 				lines.push(`${icon} ${escapeHtml(item.label)}`);
 			}

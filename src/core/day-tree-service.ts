@@ -4,9 +4,9 @@ import type { LlmProvider } from '../providers/llm.js';
 import { DayTreeLlmSchema } from '../schemas/day-tree.js';
 import type { DayTree } from '../types/day-tree.js';
 
-const TREE_SET_SYSTEM_PROMPT = `You are a day planner. Structure the user's day description into a day tree. Each cycle represents a time period in the day. Cycles with isTaskSlot=true are for assignable tasks. Cycles with isTaskSlot=false are fixed activities (dinner, sleep). Items within cycles describe fixed activities (type='fixed') or permissions/constraints (type='rule'). Use HH:MM format for all times. Order cycles chronologically from earliest to latest.`;
+const TREE_SET_SYSTEM_PROMPT = `You are a day planner. Structure the user's day description into a day tree. Each branch represents a time period in the day. Branches with isTaskSlot=true are for assignable tasks. Branches with isTaskSlot=false are fixed activities (dinner, sleep). Items within branches describe fixed activities (type='fixed') or permissions/constraints (type='rule'). Use HH:MM format for all times. Order branches chronologically from earliest to latest.`;
 
-const TREE_EDIT_SYSTEM_PROMPT = `You are a day planner. Modify the existing day tree according to the user's request. Output the complete updated tree. Do not remove cycles unless explicitly asked. Use HH:MM format for all times. Order cycles chronologically.`;
+const TREE_EDIT_SYSTEM_PROMPT = `You are a day planner. Modify the existing day tree according to the user's request. Output the complete updated tree. Do not remove branches unless explicitly asked. Use HH:MM format for all times. Order branches chronologically.`;
 
 export class DayTreeService {
 	constructor(

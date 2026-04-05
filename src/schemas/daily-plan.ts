@@ -16,7 +16,7 @@ export const PlanChunkSchema = z.object({
 });
 
 export const ChunkPlanLlmSchema = z.object({
-	chunks: z.array(PlanChunkSchema).describe('Ordered list of chunks covering all cycles from the day tree'),
+	chunks: z.array(PlanChunkSchema).describe('Ordered list of chunks covering all branches from the day tree'),
 	reasoning: z.string().describe('Brief explanation of task assignment and chunk splitting decisions'),
 });
 

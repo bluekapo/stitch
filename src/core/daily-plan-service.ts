@@ -101,7 +101,7 @@ export class DailyPlanService {
 			const [insertedChunk] = this.db.insert(planChunks)
 				.values({
 					planId: plan.id,
-					cycleName: chunk.cycleName,
+					branchName: chunk.branchName,
 					label: chunk.label,
 					startTime: chunk.startTime,
 					endTime: chunk.endTime,
@@ -150,10 +150,10 @@ export class DailyPlanService {
 		pendingTasks: { id: number; name: string; isEssential: boolean; postponeCount: number; deadline: string | null }[],
 		today: string,
 	): { system: string; user: string } {
-		const treeText = tree.cycles.map(c => {
-			const type = c.isTaskSlot ? 'TASK SLOT' : 'FIXED';
-			const items = c.items?.map(item => `  ${item.type.toUpperCase()}: ${item.label}`).join('\n') ?? '';
-			return `${c.name} (${c.startTime}-${c.endTime}) [${type}]${items ? `\n${items}` : ''}`;
+		const treeText = tree.branches.map(b => {
+			const type = b.isTaskSlot ? 'TASK SLOT' : 'FIXED';
+			const items = b.items?.map(item => `  ${item.type.toUpperCase()}: ${item.label}`).join('\n') ?? '';
+			return `${b.name} (${b.startTime}-${b.endTime}) [${type}]${items ? `\n${items}` : ''}`;
 		}).join('\n\n');
 
 		const taskText = pendingTasks.map(t => {
@@ -165,16 +165,16 @@ export class DailyPlanService {
 		}).join('\n');
 
 		return {
-			system: `You are a daily planner. Create a day plan by assigning tasks to the day tree's task-slot cycles.
+			system: `You are a daily planner. Create a day plan by assigning tasks to the day tree's task-slot branches.
 
 Rules:
-- For each cycle with isTaskSlot=true, create one or more chunks and assign tasks from the pending pool.
+- For each branch with isTaskSlot=true, create one or more chunks and assign tasks from the pending pool.
 - ESSENTIAL tasks MUST be assigned first. Set isLocked=true for them.
 - Tasks with higher postponeCount get priority.
 - Tasks with deadlines today or earlier get high priority.
-- You may split long task-slot cycles into multiple chunks for better pacing.
-- Non-task-slot cycles become informational chunks with empty tasks arrays.
-- Each chunk must have a valid cycleName matching a cycle in the tree.
+- You may split long task-slot branches into multiple chunks for better pacing.
+- Non-task-slot branches become informational chunks with empty tasks arrays.
+- Each chunk must have a valid branchName matching a branch in the tree.
 - Order chunks by startTime.
 - If fewer tasks than capacity, create fewer chunks with available tasks.
 - Today's date: ${today}`,
