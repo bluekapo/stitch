@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import type { Bot } from 'grammy';
 import { setupTelegramBot } from './channels/telegram/index.js';
+import { BlueprintService } from './core/blueprint-service.js';
 import type { StitchContext } from './channels/telegram/types.js';
 import { type AppConfig, loadConfig } from './config.js';
 import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
@@ -48,6 +49,10 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	const taskService = new TaskService(db);
 	app.decorate('taskService', taskService);
 
+	// Blueprint service
+	const blueprintService = new BlueprintService(db);
+	app.decorate('blueprintService', blueprintService);
+
 	// Recurrence scheduler
 	const scheduler = new RecurrenceScheduler(taskService, config.RECURRENCE_CRON_TIME);
 	app.decorate('scheduler', scheduler);
@@ -56,7 +61,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	if (options.telegramBot) {
 		app.decorate('bot', options.telegramBot);
 	} else if (config.TELEGRAM_BOT_TOKEN) {
-		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider });
+		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, blueprintService });
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);
 	}

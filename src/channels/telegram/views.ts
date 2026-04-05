@@ -1,3 +1,4 @@
+import type { FullBlueprint } from '../../types/blueprint.js';
 import type { TaskDetail, TaskListItem } from '../../types/task.js';
 
 export function escapeHtml(text: string): string {
@@ -129,4 +130,29 @@ export function renderTaskListText(tasks: TaskListItem[]): string {
 			return `${i + 1}. ${prefix}${task.name} (${task.status})`;
 		})
 		.join('\n');
+}
+
+export function renderBlueprintView(blueprint: FullBlueprint): string {
+	const lines: string[] = [
+		`<b>-- Blueprint: ${escapeHtml(blueprint.name)} --</b>`,
+		blueprint.isActive ? '<i>Active</i>' : '<i>Inactive</i>',
+		'',
+	];
+
+	for (const cycle of blueprint.cycles) {
+		lines.push(`<b>${escapeHtml(cycle.name)}</b> (${cycle.startTime}-${cycle.endTime})`);
+		for (const block of cycle.timeBlocks) {
+			const icon = block.isSlot ? '\u2B1C' : '\u2705';
+			const label = block.label ? escapeHtml(block.label) : '<i>Available slot</i>';
+			lines.push(`  ${icon} ${block.startTime}-${block.endTime} ${label}`);
+		}
+		lines.push('');
+	}
+
+	return lines.join('\n');
+}
+
+export function renderBlueprintListText(blueprints: { id: number; name: string; isActive: boolean }[]): string {
+	if (blueprints.length === 0) return 'No blueprints. Use "blueprint create Name" to create one.';
+	return blueprints.map(b => `${b.id}. ${b.isActive ? '\u2705 ' : ''}${b.name}`).join('\n');
 }
