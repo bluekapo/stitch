@@ -1,14 +1,13 @@
 import type { Bot } from 'grammy';
 import type { AppConfig } from '../../config.js';
-import type { BlueprintService } from '../../core/blueprint-service.js';
 import type { DailyPlanService } from '../../core/daily-plan-service.js';
+import type { DayTreeService } from '../../core/day-tree-service.js';
 import { TaskParserService } from '../../core/task-parser.js';
 import type { TaskService } from '../../core/task-service.js';
 import type { LlmProvider } from '../../providers/llm.js';
 import type { SttProvider } from '../../providers/stt.js';
 import { createBot } from './bot.js';
 import { autoCleanup } from './cleanup.js';
-import { registerBlueprintHandlers } from './handlers/blueprint-handler.js';
 import { registerNlHandler } from './handlers/nl-handler.js';
 import { registerTaskHandlers } from './handlers/task-handlers.js';
 import { registerVoiceHandler } from './handlers/voice-handler.js';
@@ -26,13 +25,13 @@ export interface TelegramSetupOptions {
 	config: AppConfig;
 	taskService: TaskService;
 	llmProvider: LlmProvider;
-	blueprintService?: BlueprintService;
+	dayTreeService?: DayTreeService;
 	dailyPlanService?: DailyPlanService;
 	sttProvider?: SttProvider;
 }
 
 export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {
-	const { config, taskService, llmProvider, blueprintService, dailyPlanService, sttProvider } = options;
+	const { config, taskService, llmProvider, dayTreeService, dailyPlanService, sttProvider } = options;
 
 	const bot = createBot({
 		token: config.TELEGRAM_BOT_TOKEN,
@@ -59,17 +58,12 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 	// Text command handlers (registered AFTER /start, BEFORE autoCleanup per Pitfall 1)
 	registerTaskHandlers(bot, taskService);
 
-	// Blueprint handlers (registered AFTER task handlers, BEFORE NL catch-all)
-	if (blueprintService) {
-		registerBlueprintHandlers(bot, blueprintService);
-	}
-
 	// Parser shared by voice and NL handlers
 	const parser = new TaskParserService(llmProvider);
 
-	// Voice handler: registered AFTER blueprint handlers, BEFORE NL catch-all
+	// Voice handler: registered AFTER task handlers, BEFORE NL catch-all
 	if (sttProvider) {
-		registerVoiceHandler(bot, sttProvider, taskService, parser, config.TELEGRAM_BOT_TOKEN);
+		registerVoiceHandler(bot, sttProvider, taskService, parser, config.TELEGRAM_BOT_TOKEN, dayTreeService);
 	}
 
 	// NL handler: catch-all for unmatched text, parses via LLM (registered AFTER task/voice handlers)

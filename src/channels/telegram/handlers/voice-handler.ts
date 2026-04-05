@@ -1,4 +1,5 @@
 import type { Bot } from 'grammy';
+import type { DayTreeService } from '../../../core/day-tree-service.js';
 import type { SttProvider } from '../../../providers/stt.js';
 import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
@@ -12,6 +13,7 @@ export function registerVoiceHandler(
 	taskService: TaskService,
 	parser: TaskParserService,
 	botToken: string,
+	dayTreeService?: DayTreeService,
 ): void {
 	bot.on('message:voice', async (ctx) => {
 		const chatId = ctx.chat.id;
@@ -54,7 +56,7 @@ export function registerVoiceHandler(
 		}
 
 		// Route through shared text processing
-		const result = await routeTextInput(transcribedText, { taskService, parser });
+		const result = await routeTextInput(transcribedText, { taskService, parser, dayTreeService });
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply);
 			scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id);

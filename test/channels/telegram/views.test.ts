@@ -183,8 +183,10 @@ describe('renderDayPlanView', () => {
 	const planView: DailyPlanView = {
 		date: '2026-04-05',
 		chunks: [
-			{ label: 'Shower', startTime: '07:00', endTime: '07:30', isLocked: false, status: 'completed' },
-			{ label: 'Buy groceries', startTime: '07:30', endTime: '08:00', isLocked: true, status: 'pending' },
+			{ label: 'Shower', startTime: '07:00', endTime: '07:30', isTaskSlot: false, status: 'completed', tasks: [] },
+			{ label: 'Buy groceries', startTime: '07:30', endTime: '08:00', isTaskSlot: true, status: 'pending', tasks: [
+				{ label: 'Buy groceries', isLocked: true, status: 'pending' },
+			] },
 		],
 	};
 
@@ -193,9 +195,9 @@ describe('renderDayPlanView', () => {
 		expect(result).toContain('No plan for today yet.');
 	});
 
-	it('returns "Set an active blueprint" hint when undefined', () => {
+	it('returns "Set a day tree" hint when undefined', () => {
 		const result = renderDayPlanView(undefined);
-		expect(result).toContain('Set an active blueprint');
+		expect(result).toContain('Set a day tree');
 	});
 
 	it('renders both chunk labels when plan has 2 chunks', () => {
@@ -204,7 +206,7 @@ describe('renderDayPlanView', () => {
 		expect(result).toContain('Buy groceries');
 	});
 
-	it('renders lock icon for locked chunk', () => {
+	it('renders lock icon for locked task in chunk', () => {
 		const result = renderDayPlanView(planView);
 		expect(result).toContain('\uD83D\uDD12');
 	});

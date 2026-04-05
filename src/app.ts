@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import type { Bot } from 'grammy';
 import { setupTelegramBot } from './channels/telegram/index.js';
-import { BlueprintService } from './core/blueprint-service.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
+import { DayTreeService } from './core/day-tree-service.js';
 import type { StitchContext } from './channels/telegram/types.js';
 import { type AppConfig, loadConfig } from './config.js';
 import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
@@ -50,12 +50,12 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	const taskService = new TaskService(db);
 	app.decorate('taskService', taskService);
 
-	// Blueprint service
-	const blueprintService = new BlueprintService(db);
-	app.decorate('blueprintService', blueprintService);
+	// Day tree service
+	const dayTreeService = new DayTreeService(db, llmProvider);
+	app.decorate('dayTreeService', dayTreeService);
 
 	// Daily plan service
-	const dailyPlanService = new DailyPlanService(db, blueprintService, taskService, llmProvider);
+	const dailyPlanService = new DailyPlanService(db, dayTreeService, taskService, llmProvider);
 	app.decorate('dailyPlanService', dailyPlanService);
 
 	// Recurrence scheduler
@@ -66,7 +66,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	if (options.telegramBot) {
 		app.decorate('bot', options.telegramBot);
 	} else if (config.TELEGRAM_BOT_TOKEN) {
-		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, blueprintService, dailyPlanService, sttProvider });
+		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, dayTreeService, dailyPlanService, sttProvider });
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);
 	}
@@ -103,9 +103,9 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		try {
 			const plan = await dailyPlanService.ensureTodayPlan();
 			if (plan) {
-				app.log.info(`Daily plan generated for today: ${dailyPlanService.getPlanChunks(plan.id).length} chunks`);
+				app.log.info(`Daily plan generated for today: ${dailyPlanService.getPlanWithChunks(plan.id).chunks.length} chunks`);
 			} else {
-				app.log.info('No daily plan generated (already exists or no active blueprint)');
+				app.log.info('No daily plan generated (already exists or no day tree set)');
 			}
 		} catch (err) {
 			app.log.warn({ err }, 'Failed to generate daily plan on startup');

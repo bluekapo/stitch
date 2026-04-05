@@ -13,15 +13,20 @@ export function createHubMenu(taskService: TaskService, dailyPlanService?: Daily
 			if (dailyPlanService) {
 				const plan = dailyPlanService.getTodayPlan();
 				if (plan) {
-					const chunks = dailyPlanService.getPlanChunks(plan.id);
+					const result = dailyPlanService.getPlanWithChunks(plan.id);
 					planView = {
 						date: plan.date,
-						chunks: chunks.map(c => ({
+						chunks: result.chunks.map(c => ({
 							label: c.label,
 							startTime: c.startTime,
 							endTime: c.endTime,
-							isLocked: c.isLocked,
+							isTaskSlot: c.isTaskSlot,
 							status: c.status,
+							tasks: c.tasks.map(t => ({
+								label: t.label,
+								isLocked: t.isLocked,
+								status: t.status,
+							})),
 						})),
 					};
 				}

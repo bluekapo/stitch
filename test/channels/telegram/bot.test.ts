@@ -326,9 +326,9 @@ describe('renderDayPlanView', () => {
 		expect(result).toContain('No plan for today yet');
 	});
 
-	it('shows blueprint hint when no plan exists', () => {
+	it('shows day tree hint when no plan exists', () => {
 		const result = renderDayPlanView(undefined);
-		expect(result).toContain('Set an active blueprint');
+		expect(result).toContain('Set a day tree');
 	});
 });
 
