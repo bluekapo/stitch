@@ -132,9 +132,9 @@ describe('HubManager', () => {
 		// Second send to same chat -- should edit, not send new
 		await hub.sendHub(123, 'refreshed', fakeMenu);
 
+		// Edit omits reply_markup — bot.api bypasses menu transformer, existing keyboard stays
 		expect(api.editMessageText).toHaveBeenCalledWith(123, 42, 'refreshed', {
 			parse_mode: 'HTML',
-			reply_markup: fakeMenu,
 		});
 		expect(api.sendMessage).not.toHaveBeenCalled();
 	});
@@ -151,7 +151,6 @@ describe('HubManager', () => {
 		// Should have edited the pinned message, not sent a new one
 		expect(api.editMessageText).toHaveBeenCalledWith(123, 99, 'recovered', {
 			parse_mode: 'HTML',
-			reply_markup: fakeMenu,
 		});
 		expect(api.sendMessage).not.toHaveBeenCalled();
 		// Ref should be set

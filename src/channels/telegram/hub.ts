@@ -31,11 +31,12 @@ export class HubManager {
 		}
 
 		// If hub exists, try to edit in place (prevents duplicate hubs on repeated /start)
+		// Don't pass reply_markup here — bot.api bypasses the menu transformer,
+		// and the existing keyboard is already on the message.
 		if (this.ref && this.ref.chatId === chatId) {
 			try {
 				await this.api.editMessageText(this.ref.chatId, this.ref.messageId, text, {
 					parse_mode: 'HTML',
-					reply_markup: menu,
 				});
 				return;
 			} catch (err: unknown) {
