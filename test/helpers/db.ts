@@ -62,7 +62,8 @@ export function createTestDb() {
 		CREATE TABLE IF NOT EXISTS daily_plans (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			date TEXT NOT NULL UNIQUE,
-			blueprint_id INTEGER NOT NULL REFERENCES blueprints(id),
+			blueprint_id INTEGER REFERENCES blueprints(id),
+			day_tree_id INTEGER REFERENCES day_trees(id),
 			status TEXT NOT NULL DEFAULT 'active',
 			llm_reasoning TEXT,
 			created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -71,9 +72,20 @@ export function createTestDb() {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			plan_id INTEGER NOT NULL REFERENCES daily_plans(id) ON DELETE CASCADE,
 			task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+			cycle_name TEXT NOT NULL DEFAULT '',
 			label TEXT NOT NULL,
 			start_time TEXT NOT NULL,
 			end_time TEXT NOT NULL,
+			is_locked INTEGER NOT NULL DEFAULT 0,
+			is_task_slot INTEGER NOT NULL DEFAULT 1,
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'pending'
+		);
+		CREATE TABLE IF NOT EXISTS chunk_tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chunk_id INTEGER NOT NULL REFERENCES plan_chunks(id) ON DELETE CASCADE,
+			task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+			label TEXT NOT NULL,
 			is_locked INTEGER NOT NULL DEFAULT 0,
 			sort_order INTEGER NOT NULL DEFAULT 0,
 			status TEXT NOT NULL DEFAULT 'pending'

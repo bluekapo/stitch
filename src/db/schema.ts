@@ -75,8 +75,10 @@ export const dayTrees = sqliteTable('day_trees', {
 export const dailyPlans = sqliteTable('daily_plans', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	date: text('date').notNull().unique(),
-	blueprintId: integer('blueprint_id').notNull()
+	blueprintId: integer('blueprint_id')
 		.references(() => blueprints.id),
+	dayTreeId: integer('day_tree_id')
+		.references(() => dayTrees.id),
 	status: text('status', {
 		enum: ['active', 'completed', 'cancelled'],
 	}).notNull().default('active'),
@@ -90,9 +92,25 @@ export const planChunks = sqliteTable('plan_chunks', {
 		.references(() => dailyPlans.id, { onDelete: 'cascade' }),
 	taskId: integer('task_id')
 		.references(() => tasks.id, { onDelete: 'set null' }),
+	cycleName: text('cycle_name').notNull().default(''),
 	label: text('label').notNull(),
 	startTime: text('start_time').notNull(),
 	endTime: text('end_time').notNull(),
+	isLocked: integer('is_locked', { mode: 'boolean' }).notNull().default(false),
+	isTaskSlot: integer('is_task_slot', { mode: 'boolean' }).notNull().default(true),
+	sortOrder: integer('sort_order').notNull().default(0),
+	status: text('status', {
+		enum: ['pending', 'active', 'completed', 'skipped'],
+	}).notNull().default('pending'),
+});
+
+export const chunkTasks = sqliteTable('chunk_tasks', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	chunkId: integer('chunk_id').notNull()
+		.references(() => planChunks.id, { onDelete: 'cascade' }),
+	taskId: integer('task_id')
+		.references(() => tasks.id, { onDelete: 'set null' }),
+	label: text('label').notNull(),
 	isLocked: integer('is_locked', { mode: 'boolean' }).notNull().default(false),
 	sortOrder: integer('sort_order').notNull().default(0),
 	status: text('status', {
