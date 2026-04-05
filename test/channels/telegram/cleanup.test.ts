@@ -131,7 +131,7 @@ describe('flushPendingCleanups', () => {
 		expect(rows.length).toBe(0);
 	});
 
-	it('does not process rows whose delete_after is in the future', async () => {
+	it('flushes all rows regardless of delete_after timestamp', async () => {
 		const db = createTestDb();
 		const deleteMessage = vi.fn().mockResolvedValue(true);
 
@@ -144,12 +144,11 @@ describe('flushPendingCleanups', () => {
 
 		const flushed = await flushPendingCleanups(db, { deleteMessage });
 
-		expect(flushed).toBe(0);
-		expect(deleteMessage).not.toHaveBeenCalled();
+		expect(flushed).toBe(1);
+		expect(deleteMessage).toHaveBeenCalledTimes(2);
 
-		// Row should still exist
 		const rows = db.select().from(pendingCleanups).all();
-		expect(rows.length).toBe(1);
+		expect(rows.length).toBe(0);
 	});
 
 	it('handles null replyMsgId (only deletes user message)', async () => {

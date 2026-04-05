@@ -1,4 +1,4 @@
-import { eq, lte } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { StitchDb } from '../../db/index.js';
 import { pendingCleanups } from '../../db/schema.js';
 import type { StitchContext } from './types.js';
@@ -59,15 +59,14 @@ export function scheduleCleanup(
 }
 
 /**
- * On startup, process any pending cleanups whose delete_after has passed.
- * Deletes messages from Telegram and removes DB rows.
+ * On startup, process ALL pending cleanups from previous runs.
+ * Any row still in the table means the timer never fired, so delete now.
  */
 export async function flushPendingCleanups(
 	db: StitchDb,
 	botApi: { deleteMessage: (chatId: number, messageId: number) => Promise<unknown> },
 ): Promise<number> {
-	const now = new Date().toISOString();
-	const rows = db.select().from(pendingCleanups).where(lte(pendingCleanups.deleteAfter, now)).all();
+	const rows = db.select().from(pendingCleanups).all();
 
 	for (const row of rows) {
 		try {
