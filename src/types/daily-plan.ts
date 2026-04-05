@@ -12,7 +12,7 @@ export interface PlanChunk {
 	id: number;
 	planId: number;
 	taskId: number | null;
-	cycleName: string;
+	branchName: string;
 	label: string;
 	startTime: string;
 	endTime: string;

@@ -85,7 +85,7 @@ function migrateDailyPlanSchema(sqlite: Database.Database) {
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				plan_id INTEGER NOT NULL REFERENCES daily_plans(id) ON DELETE CASCADE,
 				task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
-				cycle_name TEXT NOT NULL DEFAULT '',
+				branch_name TEXT NOT NULL DEFAULT '',
 				label TEXT NOT NULL,
 				start_time TEXT NOT NULL,
 				end_time TEXT NOT NULL,
@@ -118,11 +118,19 @@ function migrateDailyPlanSchema(sqlite: Database.Database) {
 	const chunkCols = new Set(
 		(sqlite.pragma('table_info(plan_chunks)') as { name: string }[]).map((c) => c.name),
 	);
-	if (!chunkCols.has('cycle_name')) {
-		sqlite.exec(`ALTER TABLE plan_chunks ADD COLUMN cycle_name TEXT NOT NULL DEFAULT ''`);
+	if (!chunkCols.has('cycle_name') && !chunkCols.has('branch_name')) {
+		sqlite.exec(`ALTER TABLE plan_chunks ADD COLUMN branch_name TEXT NOT NULL DEFAULT ''`);
 	}
 	if (!chunkCols.has('is_task_slot')) {
 		sqlite.exec('ALTER TABLE plan_chunks ADD COLUMN is_task_slot INTEGER NOT NULL DEFAULT 1');
+	}
+
+	// Phase 08.2: rename cycle_name -> branch_name
+	const chunkColsAfter = new Set(
+		(sqlite.pragma('table_info(plan_chunks)') as { name: string }[]).map((c) => c.name),
+	);
+	if (chunkColsAfter.has('cycle_name') && !chunkColsAfter.has('branch_name')) {
+		sqlite.exec('ALTER TABLE plan_chunks RENAME COLUMN cycle_name TO branch_name');
 	}
 
 	// Create chunk_tasks table if missing
@@ -144,21 +152,37 @@ function migrateDailyPlanSchema(sqlite: Database.Database) {
 	}
 }
 
-/** Create day_trees table if it doesn't exist yet. */
+/** Create day_trees table if it doesn't exist yet, then migrate stored JSON. */
 function migrateDayTreeSchema(sqlite: Database.Database) {
 	const row = sqlite
 		.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='day_trees'")
 		.get() as { name: string } | undefined;
-	if (row) return;
 
-	sqlite.exec(`
-		CREATE TABLE day_trees (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			tree TEXT NOT NULL,
-			created_at TEXT NOT NULL DEFAULT (datetime('now')),
-			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-		);
-	`);
+	if (!row) {
+		sqlite.exec(`
+			CREATE TABLE day_trees (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				tree TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+		`);
+	}
+
+	// Phase 08.2: migrate stored tree JSON from {cycles:[...]} to {branches:[...]}
+	const treeRows = sqlite.prepare('SELECT id, tree FROM day_trees').all() as { id: number; tree: string }[];
+	for (const treeRow of treeRows) {
+		try {
+			const parsed = JSON.parse(treeRow.tree as string);
+			if (parsed.cycles && !parsed.branches) {
+				parsed.branches = parsed.cycles;
+				delete parsed.cycles;
+				sqlite.prepare('UPDATE day_trees SET tree = ? WHERE id = ?').run(
+					JSON.stringify(parsed), treeRow.id
+				);
+			}
+		} catch { /* skip malformed rows */ }
+	}
 }
 
 /** Create pending_cleanups table if it doesn't exist yet. */

@@ -7,7 +7,7 @@ export const ChunkTaskAssignmentSchema = z.object({
 });
 
 export const PlanChunkSchema = z.object({
-	cycleName: z.string().describe('Name of the day tree cycle this chunk belongs to'),
+	branchName: z.string().describe('Name of the day tree branch this chunk belongs to'),
 	label: z.string().describe('Display label for this chunk (e.g., "Work block 1", "Dinner")'),
 	startTime: z.string().describe('HH:MM start time'),
 	endTime: z.string().describe('HH:MM end time'),

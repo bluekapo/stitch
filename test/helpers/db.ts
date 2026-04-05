@@ -72,7 +72,7 @@ export function createTestDb() {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			plan_id INTEGER NOT NULL REFERENCES daily_plans(id) ON DELETE CASCADE,
 			task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
-			cycle_name TEXT NOT NULL DEFAULT '',
+			branch_name TEXT NOT NULL DEFAULT '',
 			label TEXT NOT NULL,
 			start_time TEXT NOT NULL,
 			end_time TEXT NOT NULL,

@@ -5,18 +5,18 @@ export const DayTreeItemSchema = z.object({
 	type: z.enum(['fixed', 'rule']).describe('fixed: scheduled activity. rule: permission or constraint'),
 });
 
-export const DayTreeCycleSchema = z.object({
-	name: z.string().describe('Cycle name'),
+export const DayTreeBranchSchema = z.object({
+	name: z.string().describe('Branch name'),
 	startTime: z.string().describe('Start time in HH:MM format'),
 	endTime: z.string().describe('End time in HH:MM format'),
-	isTaskSlot: z.boolean().describe('True if cycle contains assignable task time'),
-	items: z.array(DayTreeItemSchema).optional().describe('Fixed activities or rules within cycle'),
+	isTaskSlot: z.boolean().describe('True if branch contains assignable task time'),
+	items: z.array(DayTreeItemSchema).optional().describe('Fixed activities or rules within branch'),
 });
 
 export const DayTreeLlmSchema = z.object({
-	cycles: z.array(DayTreeCycleSchema).describe('Ordered list of cycles from wake-up to sleep'),
+	branches: z.array(DayTreeBranchSchema).describe('Ordered list of branches from wake-up to sleep'),
 });
 
 export type DayTree = z.infer<typeof DayTreeLlmSchema>;
-export type DayTreeCycle = z.infer<typeof DayTreeCycleSchema>;
+export type DayTreeBranch = z.infer<typeof DayTreeBranchSchema>;
 export type DayTreeItem = z.infer<typeof DayTreeItemSchema>;

@@ -92,7 +92,7 @@ export const planChunks = sqliteTable('plan_chunks', {
 		.references(() => dailyPlans.id, { onDelete: 'cascade' }),
 	taskId: integer('task_id')
 		.references(() => tasks.id, { onDelete: 'set null' }),
-	cycleName: text('cycle_name').notNull().default(''),
+	branchName: text('branch_name').notNull().default(''),
 	label: text('label').notNull(),
 	startTime: text('start_time').notNull(),
 	endTime: text('end_time').notNull(),
