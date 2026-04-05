@@ -29,6 +29,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		logger: {
 			level: config.LOG_LEVEL,
 		},
+		pluginTimeout: 120_000,
 	});
 
 	// Decorate app with config for access in routes/plugins

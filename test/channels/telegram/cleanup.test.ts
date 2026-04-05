@@ -58,7 +58,7 @@ describe('scheduleCleanup', () => {
 		await vi.advanceTimersByTimeAsync(CLEANUP_DELAY_MS);
 	});
 
-	it('exports CLEANUP_DELAY_MS as 3000', () => {
-		expect(CLEANUP_DELAY_MS).toBe(3000);
+	it('exports CLEANUP_DELAY_MS as 60000', () => {
+		expect(CLEANUP_DELAY_MS).toBe(60_000);
 	});
 });

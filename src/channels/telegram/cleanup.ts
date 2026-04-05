@@ -1,6 +1,6 @@
 import type { StitchContext } from './types.js';
 
-export const CLEANUP_DELAY_MS = 3000;
+export const CLEANUP_DELAY_MS = 60_000;
 
 export function scheduleCleanup(
 	ctx: StitchContext,

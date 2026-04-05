@@ -131,8 +131,8 @@ describe('voice-handler', () => {
 
 		await bot.handleUpdate(fakeVoiceMessageUpdate() as never);
 
-		// Advance timers past CLEANUP_DELAY_MS (3000ms)
-		await vi.advanceTimersByTimeAsync(4000);
+		// Advance timers past CLEANUP_DELAY_MS (60000ms)
+		await vi.advanceTimersByTimeAsync(61_000);
 
 		const deleteCalls = outgoing.filter((o) => o.method === 'deleteMessage');
 		// Should have 2 deleteMessage calls: voice msg + bot reply
