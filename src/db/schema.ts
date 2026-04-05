@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import type { DayTree } from '../types/day-tree.js';
 
 export const tasks = sqliteTable('tasks', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
@@ -62,6 +63,13 @@ export const blueprintTimeBlocks = sqliteTable('blueprint_time_blocks', {
 	endTime: text('end_time').notNull(),
 	isSlot: integer('is_slot', { mode: 'boolean' }).notNull().default(true),
 	sortOrder: integer('sort_order').notNull().default(0),
+});
+
+export const dayTrees = sqliteTable('day_trees', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	tree: text('tree', { mode: 'json' }).$type<DayTree>().notNull(),
+	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });
 
 export const dailyPlans = sqliteTable('daily_plans', {
