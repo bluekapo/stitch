@@ -51,6 +51,17 @@ export function createTestBot(): TestBotResult {
 				},
 			} as never;
 		}
+		if (method === 'getFile') {
+			return {
+				ok: true,
+				result: {
+					file_id: (payload as Record<string, unknown>).file_id ?? 'voice-file-id',
+					file_unique_id: 'unique-voice-file-id',
+					file_path: 'voice/file_0.oga',
+					file_size: 1024,
+				},
+			} as never;
+		}
 		return { ok: true, result: true } as never;
 	});
 
@@ -71,6 +82,28 @@ export function fakeTextMessageUpdate(
 			chat: { id: userId, type: 'private' },
 			date: Math.floor(Date.now() / 1000),
 			text,
+		},
+	};
+}
+
+export function fakeVoiceMessageUpdate(
+	fileId = 'voice-file-id',
+	userId = 123,
+): object {
+	return {
+		update_id: updateIdCounter++,
+		message: {
+			message_id: updateIdCounter,
+			from: { id: userId, is_bot: false, first_name: 'Test' },
+			chat: { id: userId, type: 'private' },
+			date: Math.floor(Date.now() / 1000),
+			voice: {
+				file_id: fileId,
+				file_unique_id: `unique-${fileId}`,
+				duration: 3,
+				mime_type: 'audio/ogg',
+				file_size: 1024,
+			},
 		},
 	};
 }
