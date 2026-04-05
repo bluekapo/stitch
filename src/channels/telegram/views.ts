@@ -1,4 +1,5 @@
 import type { FullBlueprint } from '../../types/blueprint.js';
+import type { DailyPlanView } from '../../types/daily-plan.js';
 import type { TaskDetail, TaskListItem } from '../../types/task.js';
 
 export function escapeHtml(text: string): string {
@@ -58,13 +59,31 @@ export function renderHubView(state: HubViewState): string {
 	].join('\n');
 }
 
-export function renderDayPlanView(): string {
-	return [
-		'<b>-- Day Plan --</b>',
+export function renderDayPlanView(plan: DailyPlanView | undefined): string {
+	if (!plan) {
+		return [
+			'<b>-- Day Plan --</b>',
+			'',
+			'<i>No plan for today yet.</i>',
+			'<i>Set an active blueprint and restart to generate.</i>',
+		].join('\n');
+	}
+
+	const lines: string[] = [
+		`<b>-- Day Plan (${escapeHtml(plan.date)}) --</b>`,
 		'',
-		'<i>No plan for today yet.</i>',
-		'<i>Plans are generated in a future update.</i>',
-	].join('\n');
+	];
+
+	for (const chunk of plan.chunks) {
+		const lockIcon = chunk.isLocked ? ' \uD83D\uDD12' : '';
+		const statusIcon = chunk.status === 'completed' ? '\u2705 '
+			: chunk.status === 'active' ? '\u25B6 '
+			: chunk.status === 'skipped' ? '\u23ED '
+			: '';
+		lines.push(`${statusIcon}<b>${chunk.startTime}-${chunk.endTime}</b>${lockIcon} ${escapeHtml(chunk.label)}`);
+	}
+
+	return lines.join('\n');
 }
 
 export function renderTasksView(tasks: TaskListItem[]): string {

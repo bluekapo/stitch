@@ -8,8 +8,10 @@ import {
 	renderTaskDetailView,
 	renderTaskListText,
 	renderHubView,
+	renderDayPlanView,
 } from '../../../src/channels/telegram/views.js';
 import type { TaskListItem, TaskDetail } from '../../../src/types/task.js';
+import type { DailyPlanView } from '../../../src/types/daily-plan.js';
 
 describe('escapeHtml', () => {
 	it('escapes < > & characters', () => {
@@ -174,5 +176,52 @@ describe('renderHubView with timer', () => {
 		expect(result).toContain('Idle');
 		expect(result).toContain('--:--:--');
 		expect(result).toContain('Ready when you are.');
+	});
+});
+
+describe('renderDayPlanView', () => {
+	const planView: DailyPlanView = {
+		date: '2026-04-05',
+		chunks: [
+			{ label: 'Shower', startTime: '07:00', endTime: '07:30', isLocked: false, status: 'completed' },
+			{ label: 'Buy groceries', startTime: '07:30', endTime: '08:00', isLocked: true, status: 'pending' },
+		],
+	};
+
+	it('returns "No plan for today yet." when undefined', () => {
+		const result = renderDayPlanView(undefined);
+		expect(result).toContain('No plan for today yet.');
+	});
+
+	it('returns "Set an active blueprint" hint when undefined', () => {
+		const result = renderDayPlanView(undefined);
+		expect(result).toContain('Set an active blueprint');
+	});
+
+	it('renders both chunk labels when plan has 2 chunks', () => {
+		const result = renderDayPlanView(planView);
+		expect(result).toContain('Shower');
+		expect(result).toContain('Buy groceries');
+	});
+
+	it('renders lock icon for locked chunk', () => {
+		const result = renderDayPlanView(planView);
+		expect(result).toContain('\uD83D\uDD12');
+	});
+
+	it('renders chunk start-end time range in HH:MM-HH:MM format', () => {
+		const result = renderDayPlanView(planView);
+		expect(result).toContain('07:00-07:30');
+		expect(result).toContain('07:30-08:00');
+	});
+
+	it('renders checkmark icon for completed chunk', () => {
+		const result = renderDayPlanView(planView);
+		expect(result).toContain('\u2705');
+	});
+
+	it('includes the plan date in the header', () => {
+		const result = renderDayPlanView(planView);
+		expect(result).toContain('2026-04-05');
 	});
 });
