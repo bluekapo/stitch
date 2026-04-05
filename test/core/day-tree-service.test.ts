@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb } from '../helpers/db.js';
 import { DayTreeLlmSchema, DayTreeCycleSchema, DayTreeItemSchema } from '../../src/schemas/day-tree.js';
 import { dayTrees } from '../../src/db/schema.js';
+import { MockLlmProvider } from '../../src/providers/mock.js';
+import { DayTreeService } from '../../src/core/day-tree-service.js';
 
 const SAMPLE_TREE = {
 	cycles: [
@@ -84,5 +86,98 @@ describe('DayTree DB table', () => {
 	it('createTestDb creates day_trees table without error', () => {
 		const result = db.select().from(dayTrees).all();
 		expect(result).toEqual([]);
+	});
+});
+
+describe('DayTreeService', () => {
+	let db: ReturnType<typeof createTestDb>;
+	let llm: MockLlmProvider;
+	let service: DayTreeService;
+
+	const MODIFIED_TREE = {
+		cycles: [
+			{ name: 'Wake up', startTime: '07:00', endTime: '08:00', isTaskSlot: false, items: [{ label: 'Wake up', type: 'fixed' as const }] },
+			{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
+			{ name: 'Day cycle', startTime: '10:00', endTime: '20:00', isTaskSlot: true },
+			{ name: 'Dinner', startTime: '20:00', endTime: '20:45', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
+			{ name: 'Night duties', startTime: '20:45', endTime: '22:30', isTaskSlot: true },
+			{ name: 'Sleep', startTime: '22:30', endTime: '07:00', isTaskSlot: false, items: [{ label: 'Sleep', type: 'fixed' as const }] },
+		],
+	};
+
+	beforeEach(() => {
+		db = createTestDb();
+		llm = new MockLlmProvider();
+		service = new DayTreeService(db, llm);
+	});
+
+	it('getTree returns undefined when no tree exists', () => {
+		expect(service.getTree()).toBeUndefined();
+	});
+
+	it('setTree calls LLM and stores tree', async () => {
+		llm.setFixture('day_tree', SAMPLE_TREE);
+		const result = await service.setTree('wake up at 7, morning duties...');
+		expect(result.cycles).toHaveLength(6);
+		expect(result.cycles[0].name).toBe('Wake up');
+
+		const stored = service.getTree();
+		expect(stored).toBeDefined();
+		expect(stored!.cycles).toHaveLength(6);
+	});
+
+	it('setTree replaces existing tree (only one row)', async () => {
+		llm.setFixture('day_tree', SAMPLE_TREE);
+		await service.setTree('first tree');
+
+		llm.setFixture('day_tree', MODIFIED_TREE);
+		await service.setTree('second tree');
+
+		const stored = service.getTree();
+		expect(stored).toBeDefined();
+		expect(stored!.cycles[2].endTime).toBe('20:00');
+
+		// Verify only one row in DB
+		const rows = db.select().from(dayTrees).all();
+		expect(rows).toHaveLength(1);
+	});
+
+	it('editTree modifies existing tree', async () => {
+		llm.setFixture('day_tree', SAMPLE_TREE);
+		await service.setTree('my day...');
+
+		llm.setFixture('day_tree', MODIFIED_TREE);
+		const result = await service.editTree('move dinner to 20:00');
+
+		expect(result.cycles[3].startTime).toBe('20:00');
+		expect(result.cycles[3].name).toBe('Dinner');
+	});
+
+	it('editTree throws when no tree exists', async () => {
+		await expect(service.editTree('anything')).rejects.toThrow(
+			'No day tree set. Use "tree <description>" first.',
+		);
+	});
+
+	it('getTreeRow returns undefined when no tree exists', () => {
+		expect(service.getTreeRow()).toBeUndefined();
+	});
+
+	it('getTreeRow returns id and tree when tree exists', async () => {
+		llm.setFixture('day_tree', SAMPLE_TREE);
+		await service.setTree('my day...');
+
+		const row = service.getTreeRow();
+		expect(row).toBeDefined();
+		expect(typeof row!.id).toBe('number');
+		expect(row!.tree.cycles).toHaveLength(6);
+	});
+
+	it('LLM calls use correct options', async () => {
+		// The mock validates via schemaName -- if 'day_tree' fixture not set, it throws
+		llm.setFixture('day_tree', SAMPLE_TREE);
+		const result = await service.setTree('test');
+		// If we got here, schemaName='day_tree' was used correctly
+		expect(result).toBeDefined();
 	});
 });
