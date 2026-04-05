@@ -1,10 +1,12 @@
 import type { Bot } from 'grammy';
 import type { AppConfig } from '../../config.js';
+import type { BlueprintService } from '../../core/blueprint-service.js';
 import { TaskParserService } from '../../core/task-parser.js';
 import type { TaskService } from '../../core/task-service.js';
 import type { LlmProvider } from '../../providers/llm.js';
 import { createBot } from './bot.js';
 import { autoCleanup } from './cleanup.js';
+import { registerBlueprintHandlers } from './handlers/blueprint-handler.js';
 import { registerNlHandler } from './handlers/nl-handler.js';
 import { registerTaskHandlers } from './handlers/task-handlers.js';
 import { HubManager } from './hub.js';
@@ -21,10 +23,11 @@ export interface TelegramSetupOptions {
 	config: AppConfig;
 	taskService: TaskService;
 	llmProvider: LlmProvider;
+	blueprintService?: BlueprintService;
 }
 
 export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {
-	const { config, taskService, llmProvider } = options;
+	const { config, taskService, llmProvider, blueprintService } = options;
 
 	const bot = createBot({
 		token: config.TELEGRAM_BOT_TOKEN,
@@ -50,6 +53,11 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 
 	// Text command handlers (registered AFTER /start, BEFORE autoCleanup per Pitfall 1)
 	registerTaskHandlers(bot, taskService);
+
+	// Blueprint handlers (registered AFTER task handlers, BEFORE NL catch-all)
+	if (blueprintService) {
+		registerBlueprintHandlers(bot, blueprintService);
+	}
 
 	// NL handler: catch-all for unmatched text, parses via LLM (registered AFTER task handlers)
 	const parser = new TaskParserService(llmProvider);
