@@ -13,6 +13,7 @@ export function createDb(dbPath: string) {
 	const sqlite = new Database(dbPath);
 	sqlite.pragma('journal_mode = WAL');
 	migrateSchema(sqlite);
+	migrateBlueprintSchema(sqlite);
 	return drizzle(sqlite, { schema });
 }
 
@@ -32,4 +33,39 @@ function migrateSchema(sqlite: Database.Database) {
 			sqlite.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
 		}
 	}
+}
+
+/** Create blueprint tables if they don't exist yet. */
+function migrateBlueprintSchema(sqlite: Database.Database) {
+	const row = sqlite
+		.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='blueprints'")
+		.get() as { name: string } | undefined;
+	if (row) return;
+
+	sqlite.exec(`
+		CREATE TABLE blueprints (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE blueprint_cycles (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			blueprint_id INTEGER NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			start_time TEXT NOT NULL,
+			end_time TEXT NOT NULL
+		);
+		CREATE TABLE blueprint_time_blocks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			cycle_id INTEGER NOT NULL REFERENCES blueprint_cycles(id) ON DELETE CASCADE,
+			label TEXT,
+			start_time TEXT NOT NULL,
+			end_time TEXT NOT NULL,
+			is_slot INTEGER NOT NULL DEFAULT 1,
+			sort_order INTEGER NOT NULL DEFAULT 0
+		);
+	`);
 }

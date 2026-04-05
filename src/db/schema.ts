@@ -34,3 +34,32 @@ export const taskDurations = sqliteTable('task_durations', {
 	startedAt: text('started_at').notNull(),
 	endedAt: text('ended_at').notNull().default(sql`(datetime('now'))`),
 });
+
+export const blueprints = sqliteTable('blueprints', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	name: text('name').notNull(),
+	isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false),
+	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+});
+
+export const blueprintCycles = sqliteTable('blueprint_cycles', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	blueprintId: integer('blueprint_id').notNull()
+		.references(() => blueprints.id, { onDelete: 'cascade' }),
+	name: text('name').notNull(),
+	sortOrder: integer('sort_order').notNull().default(0),
+	startTime: text('start_time').notNull(),
+	endTime: text('end_time').notNull(),
+});
+
+export const blueprintTimeBlocks = sqliteTable('blueprint_time_blocks', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	cycleId: integer('cycle_id').notNull()
+		.references(() => blueprintCycles.id, { onDelete: 'cascade' }),
+	label: text('label'),
+	startTime: text('start_time').notNull(),
+	endTime: text('end_time').notNull(),
+	isSlot: integer('is_slot', { mode: 'boolean' }).notNull().default(true),
+	sortOrder: integer('sort_order').notNull().default(0),
+});
