@@ -11,6 +11,8 @@ export interface LlmCompletionOptions<T extends z.ZodType> {
 	schemaName: string;
 	temperature?: number;
 	maxTokens?: number;
+	/** Enable model thinking/reasoning. Defaults to true. Set false for fast extraction tasks. */
+	thinking?: boolean;
 }
 
 export interface LlmProvider {

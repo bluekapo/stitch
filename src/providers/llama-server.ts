@@ -31,13 +31,21 @@ export class LlamaServerProvider implements LlmProvider {
 
 		for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
 			try {
-				const response = await this.client.chat.completions.create({
+				const thinking = options.thinking ?? true;
+				const body: Record<string, unknown> = {
 					model: this.model,
 					messages: options.messages,
 					temperature: options.temperature ?? 0.7,
 					max_tokens: options.maxTokens ?? 1024,
 					response_format: responseFormat,
-				});
+				};
+				// llama-server extension: disable thinking at Jinja template level
+				if (!thinking) {
+					body.chat_template_kwargs = { enable_thinking: false };
+				}
+				const response = await this.client.chat.completions.create(
+					body as unknown as OpenAI.ChatCompletionCreateParamsNonStreaming,
+				);
 
 				const content = response.choices[0]?.message?.content;
 				if (!content) {
