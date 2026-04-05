@@ -1,18 +1,18 @@
 import { eq, asc } from 'drizzle-orm';
 import { format } from 'date-fns';
 import type { StitchDb } from '../db/index.js';
-import { dailyPlans, planChunks } from '../db/schema.js';
-import type { BlueprintService } from './blueprint-service.js';
+import { dailyPlans, planChunks, chunkTasks } from '../db/schema.js';
+import type { DayTreeService } from './day-tree-service.js';
 import type { TaskService } from './task-service.js';
 import type { LlmProvider } from '../providers/llm.js';
-import { DailyPlanLlmSchema } from '../schemas/daily-plan.js';
-import type { DailyPlan, PlanChunk } from '../types/daily-plan.js';
-import type { FullBlueprint } from '../types/blueprint.js';
+import { ChunkPlanLlmSchema } from '../schemas/daily-plan.js';
+import type { DailyPlan, PlanChunk, ChunkTask } from '../types/daily-plan.js';
+import type { DayTree } from '../types/day-tree.js';
 
 export class DailyPlanService {
 	constructor(
 		private db: StitchDb,
-		private blueprintService: BlueprintService,
+		private dayTreeService: DayTreeService,
 		private taskService: TaskService,
 		private llmProvider: LlmProvider,
 	) {}
@@ -28,33 +28,45 @@ export class DailyPlanService {
 		return row as DailyPlan | undefined;
 	}
 
-	getPlanChunks(planId: number): PlanChunk[] {
-		return this.db.select().from(planChunks)
+	getPlanWithChunks(planId: number): { chunks: (PlanChunk & { tasks: ChunkTask[] })[] } {
+		const chunks = this.db.select().from(planChunks)
 			.where(eq(planChunks.planId, planId))
 			.orderBy(asc(planChunks.sortOrder))
 			.all() as PlanChunk[];
+
+		const chunksWithTasks = chunks.map(chunk => {
+			const tasks = this.db.select().from(chunkTasks)
+				.where(eq(chunkTasks.chunkId, chunk.id))
+				.orderBy(asc(chunkTasks.sortOrder))
+				.all() as ChunkTask[];
+			return { ...chunk, tasks };
+		});
+
+		return { chunks: chunksWithTasks };
 	}
 
 	async generatePlan(date: string): Promise<DailyPlan & { chunks: PlanChunk[] }> {
-		const blueprint = this.blueprintService.getActiveBlueprint();
-		if (!blueprint) {
-			throw new Error('No active blueprint found.');
+		const treeRow = this.dayTreeService.getTreeRow();
+		if (!treeRow) {
+			throw new Error('No day tree found.');
 		}
+
+		const { id: dayTreeId, tree } = treeRow;
 
 		const allTasks = this.taskService.list();
 		const pendingTasks = allTasks.filter(
 			t => t.status === 'pending' || t.status === 'active',
 		);
 
-		const { system, user } = this.buildPlanPrompt(blueprint, pendingTasks, date);
+		const { system, user } = this.buildPlanPrompt(tree, pendingTasks, date);
 
 		const result = await this.llmProvider.complete({
 			messages: [
 				{ role: 'system', content: system },
 				{ role: 'user', content: user },
 			],
-			schema: DailyPlanLlmSchema,
-			schemaName: 'daily_plan',
+			schema: ChunkPlanLlmSchema,
+			schemaName: 'chunk_plan',
 			temperature: 0.3,
 			maxTokens: 2048,
 			thinking: false,
@@ -63,38 +75,59 @@ export class DailyPlanService {
 		// Build set of valid task IDs from pending tasks
 		const validTaskIds = new Set(pendingTasks.map(t => t.id));
 
-		// Filter out chunks with invalid taskIds (hallucination defense)
-		const validChunks = result.chunks.filter(
-			chunk => chunk.taskId === 0 || validTaskIds.has(chunk.taskId),
-		);
-
-		// Insert the daily plan
+		// Insert the daily plan with dayTreeId FK
 		const [plan] = this.db.insert(dailyPlans)
 			.values({
 				date,
-				blueprintId: blueprint.id,
+				dayTreeId,
+				blueprintId: null,
+				status: 'active',
 				llmReasoning: result.reasoning,
 			})
 			.returning()
 			.all();
 
-		// Insert each valid chunk
+		// Insert chunks and their tasks
 		const insertedChunks: PlanChunk[] = [];
-		for (let i = 0; i < validChunks.length; i++) {
-			const chunk = validChunks[i];
-			const [inserted] = this.db.insert(planChunks)
+		for (let i = 0; i < result.chunks.length; i++) {
+			const chunk = result.chunks[i];
+
+			// Filter tasks: keep only those with valid taskIds (hallucination defense)
+			const validChunkTasks = chunk.tasks.filter(
+				t => validTaskIds.has(t.taskId),
+			);
+
+			// Insert the plan chunk
+			const [insertedChunk] = this.db.insert(planChunks)
 				.values({
 					planId: plan.id,
-					taskId: chunk.taskId === 0 ? null : chunk.taskId,
+					cycleName: chunk.cycleName,
 					label: chunk.label,
 					startTime: chunk.startTime,
 					endTime: chunk.endTime,
-					isLocked: chunk.isLocked,
+					isTaskSlot: chunk.isTaskSlot,
 					sortOrder: i,
+					status: 'pending',
 				})
 				.returning()
 				.all();
-			insertedChunks.push(inserted as PlanChunk);
+
+			// Insert chunk tasks
+			for (let j = 0; j < validChunkTasks.length; j++) {
+				const task = validChunkTasks[j];
+				this.db.insert(chunkTasks)
+					.values({
+						chunkId: insertedChunk.id,
+						taskId: task.taskId,
+						label: task.label,
+						isLocked: task.isLocked,
+						sortOrder: j,
+						status: 'pending',
+					})
+					.run();
+			}
+
+			insertedChunks.push(insertedChunk as PlanChunk);
 		}
 
 		return { ...(plan as DailyPlan), chunks: insertedChunks };
@@ -106,23 +139,21 @@ export class DailyPlanService {
 		const existing = this.getTodayPlan();
 		if (existing) return existing;
 
-		const blueprint = this.blueprintService.getActiveBlueprint();
-		if (!blueprint) return undefined;
+		const tree = this.dayTreeService.getTree();
+		if (!tree) return undefined;
 
 		return this.generatePlan(today);
 	}
 
 	private buildPlanPrompt(
-		blueprint: FullBlueprint,
+		tree: DayTree,
 		pendingTasks: { id: number; name: string; isEssential: boolean; postponeCount: number; deadline: string | null }[],
 		today: string,
 	): { system: string; user: string } {
-		const blueprintText = blueprint.cycles.map(c => {
-			const blocks = c.timeBlocks.map(b => {
-				if (b.isSlot) return `  SLOT: ${b.startTime}-${b.endTime} (available for tasks)`;
-				return `  FIXED: ${b.startTime}-${b.endTime} ${b.label}`;
-			}).join('\n');
-			return `${c.name} (${c.startTime}-${c.endTime}):\n${blocks}`;
+		const treeText = tree.cycles.map(c => {
+			const type = c.isTaskSlot ? 'TASK SLOT' : 'FIXED';
+			const items = c.items?.map(item => `  ${item.type.toUpperCase()}: ${item.label}`).join('\n') ?? '';
+			return `${c.name} (${c.startTime}-${c.endTime}) [${type}]${items ? `\n${items}` : ''}`;
 		}).join('\n\n');
 
 		const taskText = pendingTasks.map(t => {
@@ -134,19 +165,20 @@ export class DailyPlanService {
 		}).join('\n');
 
 		return {
-			system: `You are a daily planner. You assign tasks to available time slots in a day blueprint.
+			system: `You are a daily planner. Create a day plan by assigning tasks to the day tree's task-slot cycles.
 
 Rules:
-- ESSENTIAL tasks MUST be placed first, in the earliest available slots. Set isLocked=true for them.
-- Tasks with higher postponeCount get priority (they've been delayed too long).
+- For each cycle with isTaskSlot=true, create one or more chunks and assign tasks from the pending pool.
+- ESSENTIAL tasks MUST be assigned first. Set isLocked=true for them.
+- Tasks with higher postponeCount get priority.
 - Tasks with deadlines today or earlier get high priority.
-- Only assign tasks to SLOT blocks (isSlot=true). FIXED blocks remain as-is.
-- Each chunk must have a valid taskId matching a provided task, or 0 for fixed blocks.
-- If there are more tasks than slots, prioritize by: essential > deadline > postponeCount > order.
-- If there are fewer tasks than slots, leave remaining slots with taskId=0 and label="Free time".
-- Chunks must be ordered by startTime.
+- You may split long task-slot cycles into multiple chunks for better pacing.
+- Non-task-slot cycles become informational chunks with empty tasks arrays.
+- Each chunk must have a valid cycleName matching a cycle in the tree.
+- Order chunks by startTime.
+- If fewer tasks than capacity, create fewer chunks with available tasks.
 - Today's date: ${today}`,
-			user: `Blueprint:\n${blueprintText}\n\nPending tasks:\n${taskText}`,
+			user: `Day tree:\n${treeText}\n\nPending tasks:\n${taskText}`,
 		};
 	}
 }
