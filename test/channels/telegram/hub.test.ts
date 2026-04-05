@@ -34,6 +34,10 @@ function createMockApi(pinnedMessageId?: number) {
 					};
 				},
 			),
+			deleteMessage: vi.fn(async (_chatId: number, _messageId: number) => {
+				calls.push({ method: 'deleteMessage', args: [_chatId, _messageId] });
+				return true;
+			}),
 			pinChatMessage: vi.fn(async (_chatId: number, _messageId: number, _opts?: unknown) => {
 				calls.push({
 					method: 'pinChatMessage',
@@ -121,25 +125,30 @@ describe('HubManager', () => {
 		await expect(hub.updateHub('text')).resolves.toBeUndefined();
 	});
 
-	it('sendHub on /start when hub already exists edits instead of sending new message', async () => {
+	it('sendHub on repeated /start deletes old hub and sends new message', async () => {
 		const { api } = createMockApi();
 		const hub = new HubManager(api as never);
 
 		// First send
 		await hub.sendHub(123, 'first', fakeMenu);
 		api.sendMessage.mockClear();
+		api.pinChatMessage.mockClear();
 
-		// Second send to same chat -- should edit, not send new
+		// Second send to same chat -- should delete old, send new
 		await hub.sendHub(123, 'refreshed', fakeMenu);
 
-		// Edit omits reply_markup — bot.api bypasses menu transformer, existing keyboard stays
-		expect(api.editMessageText).toHaveBeenCalledWith(123, 42, 'refreshed', {
+		expect(api.deleteMessage).toHaveBeenCalledWith(123, 42);
+		expect(api.sendMessage).toHaveBeenCalledWith(123, 'refreshed', {
+			reply_markup: fakeMenu,
 			parse_mode: 'HTML',
 		});
-		expect(api.sendMessage).not.toHaveBeenCalled();
+		expect(api.pinChatMessage).toHaveBeenCalled();
+		expect(api.editMessageText).not.toHaveBeenCalled();
+		// Ref should point to new message
+		expect(hub.getRef()).toEqual({ chatId: 123, messageId: 42 });
 	});
 
-	it('sendHub recovers ref from pinned message when ref is null (restart recovery)', async () => {
+	it('sendHub recovers ref from pinned message, deletes it, and sends new hub', async () => {
 		const { api } = createMockApi(99);
 		const hub = new HubManager(api as never);
 
@@ -148,13 +157,16 @@ describe('HubManager', () => {
 
 		// Should have called getChat to discover pinned message
 		expect(api.getChat).toHaveBeenCalledWith(123);
-		// Should have edited the pinned message, not sent a new one
-		expect(api.editMessageText).toHaveBeenCalledWith(123, 99, 'recovered', {
+		// Should delete old pinned message, then send new
+		expect(api.deleteMessage).toHaveBeenCalledWith(123, 99);
+		expect(api.sendMessage).toHaveBeenCalledWith(123, 'recovered', {
+			reply_markup: fakeMenu,
 			parse_mode: 'HTML',
 		});
-		expect(api.sendMessage).not.toHaveBeenCalled();
-		// Ref should be set
-		expect(hub.getRef()).toEqual({ chatId: 123, messageId: 99 });
+		expect(api.pinChatMessage).toHaveBeenCalled();
+		expect(api.editMessageText).not.toHaveBeenCalled();
+		// Ref should point to the new message, not the old pinned one
+		expect(hub.getRef()).toEqual({ chatId: 123, messageId: 42 });
 	});
 
 	it('sendHub sends new message when no pinned message exists and ref is null', async () => {
@@ -168,26 +180,29 @@ describe('HubManager', () => {
 		expect(api.pinChatMessage).toHaveBeenCalled();
 	});
 
-	it('sendHub recovery -- if edit fails (message deleted), sends new message and re-pins', async () => {
+	it('sendHub when deleteMessage fails still sends new hub', async () => {
 		const { api } = createMockApi();
 		const hub = new HubManager(api as never);
 
 		// First send
 		await hub.sendHub(123, 'first', fakeMenu);
 
-		// Make edit fail (simulating deleted message)
-		api.editMessageText.mockRejectedValueOnce(
-			new Error('Bad Request: message to edit not found'),
+		// Make delete fail (message already gone)
+		api.deleteMessage.mockRejectedValueOnce(
+			new Error('Bad Request: message to delete not found'),
 		);
 		api.sendMessage.mockClear();
+		api.pinChatMessage.mockClear();
 
-		// Second send -- edit fails, should fall through to new send
+		// Second send -- delete fails, should still send new hub
 		await hub.sendHub(123, 'recovered', fakeMenu);
 
+		expect(api.deleteMessage).toHaveBeenCalledWith(123, 42);
 		expect(api.sendMessage).toHaveBeenCalledWith(123, 'recovered', {
 			reply_markup: fakeMenu,
 			parse_mode: 'HTML',
 		});
 		expect(api.pinChatMessage).toHaveBeenCalled();
+		expect(api.editMessageText).not.toHaveBeenCalled();
 	});
 });
