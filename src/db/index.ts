@@ -12,5 +12,24 @@ export function createDb(dbPath: string) {
 	}
 	const sqlite = new Database(dbPath);
 	sqlite.pragma('journal_mode = WAL');
+	migrateSchema(sqlite);
 	return drizzle(sqlite, { schema });
+}
+
+/** Add columns introduced after initial schema. Only alters what's missing. */
+function migrateSchema(sqlite: Database.Database) {
+	const existing = new Set(
+		(sqlite.pragma('table_info(tasks)') as { name: string }[]).map((c) => c.name),
+	);
+	const additions: [string, string][] = [
+		['task_type', `TEXT NOT NULL DEFAULT 'ad-hoc'`],
+		['recurrence_day', 'INTEGER'],
+		['deadline', 'TEXT'],
+		['source_task_id', 'INTEGER REFERENCES tasks(id) ON DELETE SET NULL'],
+	];
+	for (const [col, def] of additions) {
+		if (!existing.has(col)) {
+			sqlite.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
+		}
+	}
 }
