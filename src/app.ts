@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import type { Bot } from 'grammy';
 import { setupTelegramBot } from './channels/telegram/index.js';
 import { BlueprintService } from './core/blueprint-service.js';
+import { DailyPlanService } from './core/daily-plan-service.js';
 import type { StitchContext } from './channels/telegram/types.js';
 import { type AppConfig, loadConfig } from './config.js';
 import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
@@ -53,6 +54,10 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	const blueprintService = new BlueprintService(db);
 	app.decorate('blueprintService', blueprintService);
 
+	// Daily plan service
+	const dailyPlanService = new DailyPlanService(db, blueprintService, taskService, llmProvider);
+	app.decorate('dailyPlanService', dailyPlanService);
+
 	// Recurrence scheduler
 	const scheduler = new RecurrenceScheduler(taskService, config.RECURRENCE_CRON_TIME);
 	app.decorate('scheduler', scheduler);
@@ -61,7 +66,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	if (options.telegramBot) {
 		app.decorate('bot', options.telegramBot);
 	} else if (config.TELEGRAM_BOT_TOKEN) {
-		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, blueprintService });
+		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, blueprintService, dailyPlanService });
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);
 	}
@@ -93,6 +98,18 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		scheduler.start();
 		app.log.info(`Recurrence scheduler started (cron: ${config.RECURRENCE_CRON_TIME})`);
 		scheduler.generateAll();
+
+		// Generate today's plan if none exists (PLAN-08)
+		try {
+			const plan = await dailyPlanService.ensureTodayPlan();
+			if (plan) {
+				app.log.info(`Daily plan generated for today: ${dailyPlanService.getPlanChunks(plan.id).length} chunks`);
+			} else {
+				app.log.info('No daily plan generated (already exists or no active blueprint)');
+			}
+		} catch (err) {
+			app.log.warn({ err }, 'Failed to generate daily plan on startup');
+		}
 	});
 
 	// Stop scheduler on app close

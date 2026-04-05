@@ -1,5 +1,6 @@
 import type { Menu } from '@grammyjs/menu';
 import type { Bot } from 'grammy';
+import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { TaskService } from '../../../core/task-service.js';
 import type { StitchContext } from '../types.js';
 import { createDayPlanMenu } from './day-plan-menu.js';
@@ -13,8 +14,12 @@ export interface RegisteredMenus {
 	taskDetailMenu: Menu<StitchContext>;
 }
 
-export function registerMenus(bot: Bot<StitchContext>, taskService: TaskService): RegisteredMenus {
-	const hubMenu = createHubMenu(taskService);
+export function registerMenus(
+	bot: Bot<StitchContext>,
+	taskService: TaskService,
+	dailyPlanService?: DailyPlanService,
+): RegisteredMenus {
+	const hubMenu = createHubMenu(taskService, dailyPlanService);
 	const dayPlanMenu = createDayPlanMenu();
 	const { tasksMenu, taskDetailMenu } = createTasksMenu(taskService);
 

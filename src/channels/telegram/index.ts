@@ -1,6 +1,7 @@
 import type { Bot } from 'grammy';
 import type { AppConfig } from '../../config.js';
 import type { BlueprintService } from '../../core/blueprint-service.js';
+import type { DailyPlanService } from '../../core/daily-plan-service.js';
 import { TaskParserService } from '../../core/task-parser.js';
 import type { TaskService } from '../../core/task-service.js';
 import type { LlmProvider } from '../../providers/llm.js';
@@ -24,10 +25,11 @@ export interface TelegramSetupOptions {
 	taskService: TaskService;
 	llmProvider: LlmProvider;
 	blueprintService?: BlueprintService;
+	dailyPlanService?: DailyPlanService;
 }
 
 export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {
-	const { config, taskService, llmProvider, blueprintService } = options;
+	const { config, taskService, llmProvider, blueprintService, dailyPlanService } = options;
 
 	const bot = createBot({
 		token: config.TELEGRAM_BOT_TOKEN,
@@ -35,7 +37,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 	});
 
 	const hub = new HubManager(bot.api);
-	const { hubMenu } = registerMenus(bot, taskService);
+	const { hubMenu } = registerMenus(bot, taskService, dailyPlanService);
 
 	// /start command: send or refresh hub
 	bot.command('start', async (ctx) => {

@@ -321,14 +321,14 @@ describe('renderHubView', () => {
 
 describe('renderDayPlanView', () => {
 	it('returns string containing "Day Plan" and "No plan for today yet"', () => {
-		const result = renderDayPlanView();
+		const result = renderDayPlanView(undefined);
 		expect(result).toContain('Day Plan');
 		expect(result).toContain('No plan for today yet');
 	});
 
-	it('produces placeholder text about future updates', () => {
-		const result = renderDayPlanView();
-		expect(result).toContain('Plans are generated in a future update');
+	it('shows blueprint hint when no plan exists', () => {
+		const result = renderDayPlanView(undefined);
+		expect(result).toContain('Set an active blueprint');
 	});
 });
 
