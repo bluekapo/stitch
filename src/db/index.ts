@@ -19,8 +19,34 @@ export function createDb(dbPath: string) {
 	return drizzle(sqlite, { schema });
 }
 
-/** Add columns introduced after initial schema. Only alters what's missing. */
+/** Create core tables if missing, then add columns introduced after initial schema. */
 function migrateSchema(sqlite: Database.Database) {
+	sqlite.exec(`
+		CREATE TABLE IF NOT EXISTS tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			description TEXT,
+			status TEXT NOT NULL DEFAULT 'pending',
+			is_essential INTEGER NOT NULL DEFAULT 0,
+			postpone_count INTEGER NOT NULL DEFAULT 0,
+			task_type TEXT NOT NULL DEFAULT 'ad-hoc',
+			recurrence_day INTEGER,
+			deadline TEXT,
+			source_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+			timer_started_at TEXT,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS task_durations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			duration_seconds INTEGER NOT NULL,
+			started_at TEXT NOT NULL,
+			ended_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+	`);
+
+	// Add columns that may be missing on older databases
 	const existing = new Set(
 		(sqlite.pragma('table_info(tasks)') as { name: string }[]).map((c) => c.name),
 	);
