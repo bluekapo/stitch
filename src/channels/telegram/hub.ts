@@ -38,7 +38,10 @@ export class HubManager {
 					reply_markup: menu,
 				});
 				return;
-			} catch {
+			} catch (err: unknown) {
+				if (err instanceof Error && err.message.includes('message is not modified')) {
+					return; // Content unchanged, no edit needed
+				}
 				// Message was deleted or too old -- fall through to send new one
 			}
 		}
