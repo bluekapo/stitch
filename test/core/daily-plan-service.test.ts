@@ -1,129 +1,239 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb } from '../helpers/db.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
-import { BlueprintService } from '../../src/core/blueprint-service.js';
+import { DayTreeService } from '../../src/core/day-tree-service.js';
 import { TaskService } from '../../src/core/task-service.js';
 import { DailyPlanService } from '../../src/core/daily-plan-service.js';
+import { dayTrees, chunkTasks, planChunks, dailyPlans } from '../../src/db/schema.js';
+import { eq, asc } from 'drizzle-orm';
 import type { StitchDb } from '../../src/db/index.js';
 
 describe('DailyPlanService', () => {
 	let db: StitchDb;
 	let llm: MockLlmProvider;
-	let blueprintService: BlueprintService;
+	let dayTreeService: DayTreeService;
 	let taskService: TaskService;
 	let planService: DailyPlanService;
-	let blueprintId: number;
 
 	beforeEach(() => {
 		db = createTestDb();
 		llm = new MockLlmProvider();
-		blueprintService = new BlueprintService(db);
+		dayTreeService = new DayTreeService(db, llm);
 		taskService = new TaskService(db);
-		planService = new DailyPlanService(db, blueprintService, taskService, llm);
+		planService = new DailyPlanService(db, dayTreeService, taskService, llm);
 
-		// Set up a blueprint with one cycle containing a fixed block and a slot
-		const bp = blueprintService.createBlueprint({ name: 'Test Day' });
-		blueprintId = bp.id;
-		const cycle = blueprintService.addCycle({
-			blueprintId: bp.id,
-			name: 'Morning',
-			startTime: '07:00',
-			endTime: '10:00',
-			sortOrder: 0,
-		});
-		blueprintService.addTimeBlock({
-			cycleId: cycle.id,
-			label: 'Shower',
-			startTime: '07:00',
-			endTime: '07:30',
-			isSlot: false,
-			sortOrder: 0,
-		});
-		blueprintService.addTimeBlock({
-			cycleId: cycle.id,
-			startTime: '07:30',
-			endTime: '08:30',
-			isSlot: true,
-			sortOrder: 1,
-		});
-		blueprintService.addTimeBlock({
-			cycleId: cycle.id,
-			startTime: '08:30',
-			endTime: '10:00',
-			isSlot: true,
-			sortOrder: 2,
-		});
-		blueprintService.setActive(bp.id);
+		// Set up a day tree (direct DB insert to avoid LLM call)
+		db.insert(dayTrees).values({
+			tree: {
+				cycles: [
+					{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
+					{ name: 'Day cycle', startTime: '10:00', endTime: '18:00', isTaskSlot: true },
+					{ name: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
+				],
+			},
+		}).run();
 	});
 
-	it('generates a plan with chunks matching LLM output', async () => {
-		const t1 = taskService.create({ name: 'Buy groceries' });
-		const t2 = taskService.create({ name: 'Read book' });
+	it('generates plan with milestone chunks from day tree', async () => {
+		const t1 = taskService.create({ name: 'Exercise' });
+		const t2 = taskService.create({ name: 'Shower' });
+		const t3 = taskService.create({ name: 'Code review' });
 
-		llm.setFixture('daily_plan', {
+		llm.setFixture('chunk_plan', {
 			chunks: [
-				{ taskId: 0, label: 'Shower', startTime: '07:00', endTime: '07:30', isLocked: false },
-				{ taskId: t1.id, label: 'Buy groceries', startTime: '07:30', endTime: '08:30', isLocked: false },
-				{ taskId: t2.id, label: 'Read book', startTime: '08:30', endTime: '10:00', isLocked: false },
+				{
+					cycleName: 'Morning duties', label: 'Morning tasks', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [
+						{ taskId: t1.id, label: 'Exercise', isLocked: false },
+						{ taskId: t2.id, label: 'Shower', isLocked: false },
+					],
+				},
+				{
+					cycleName: 'Day cycle', label: 'Work block 1', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+					tasks: [{ taskId: t3.id, label: 'Code review', isLocked: true }],
+				},
+				{
+					cycleName: 'Dinner', label: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false,
+					tasks: [],
+				},
 			],
-			reasoning: 'Assigned tasks to morning slots.',
+			reasoning: 'Assigned tasks to morning and work blocks. Dinner is informational.',
 		});
 
 		const result = await planService.generatePlan('2026-04-05');
-		const chunks = planService.getPlanChunks(result.id);
 
-		expect(chunks).toHaveLength(3);
-		expect(chunks[0].label).toBe('Shower');
-		expect(chunks[0].taskId).toBeNull();
-		expect(chunks[1].taskId).toBe(t1.id);
-		expect(chunks[1].label).toBe('Buy groceries');
-		expect(chunks[2].taskId).toBe(t2.id);
-		expect(chunks[2].label).toBe('Read book');
+		// Should have 3 chunks
+		expect(result.chunks).toHaveLength(3);
+		expect(result.chunks[0].label).toBe('Morning tasks');
+		expect(result.chunks[0].cycleName).toBe('Morning duties');
+		expect(result.chunks[1].label).toBe('Work block 1');
+		expect(result.chunks[2].label).toBe('Dinner');
+
+		// Verify chunkTasks created in DB
+		const morningTasks = db.select().from(chunkTasks)
+			.where(eq(chunkTasks.chunkId, result.chunks[0].id))
+			.orderBy(asc(chunkTasks.sortOrder))
+			.all();
+		expect(morningTasks).toHaveLength(2);
+		expect(morningTasks[0].label).toBe('Exercise');
+		expect(morningTasks[1].label).toBe('Shower');
+
+		const workTasks = db.select().from(chunkTasks)
+			.where(eq(chunkTasks.chunkId, result.chunks[1].id))
+			.all();
+		expect(workTasks).toHaveLength(1);
+		expect(workTasks[0].label).toBe('Code review');
 	});
 
-	it('marks chunks with essential tasks as isLocked=true', async () => {
-		const t1 = taskService.create({ name: 'Essential task', isEssential: true });
+	it('dailyPlans row has dayTreeId set to the day_trees row ID', async () => {
+		const t1 = taskService.create({ name: 'Task A' });
 
-		llm.setFixture('daily_plan', {
+		llm.setFixture('chunk_plan', {
 			chunks: [
-				{ taskId: 0, label: 'Shower', startTime: '07:00', endTime: '07:30', isLocked: false },
-				{ taskId: t1.id, label: 'Essential task', startTime: '07:30', endTime: '08:30', isLocked: true },
-			],
-			reasoning: 'Essential task placed first and locked.',
-		});
-
-		const result = await planService.generatePlan('2026-04-05');
-		const chunks = planService.getPlanChunks(result.id);
-		const essentialChunk = chunks.find(c => c.taskId === t1.id);
-
-		expect(essentialChunk).toBeDefined();
-		expect(essentialChunk!.isLocked).toBe(true);
-	});
-
-	it('ensureTodayPlan() creates a plan if none exists for today', async () => {
-		taskService.create({ name: 'Some task' });
-
-		llm.setFixture('daily_plan', {
-			chunks: [
-				{ taskId: 0, label: 'Shower', startTime: '07:00', endTime: '07:30', isLocked: false },
+				{
+					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
+				},
 			],
 			reasoning: 'Minimal plan.',
 		});
 
-		const plan = await planService.ensureTodayPlan();
-		expect(plan).toBeDefined();
+		const result = await planService.generatePlan('2026-04-05');
 
-		const todayPlan = planService.getTodayPlan();
-		expect(todayPlan).toBeDefined();
-		expect(todayPlan!.id).toBe(plan!.id);
+		const planRow = db.select().from(dailyPlans).where(eq(dailyPlans.id, result.id)).get();
+		expect(planRow).toBeDefined();
+		expect(planRow!.dayTreeId).not.toBeNull();
+
+		// dayTreeId should match the day_trees row
+		const treeRow = db.select().from(dayTrees).get();
+		expect(planRow!.dayTreeId).toBe(treeRow!.id);
 	});
 
-	it('ensureTodayPlan() is idempotent -- second call returns existing plan', async () => {
-		taskService.create({ name: 'Some task' });
+	it('informational chunks have empty task arrays', async () => {
+		const t1 = taskService.create({ name: 'Task A' });
 
-		llm.setFixture('daily_plan', {
+		llm.setFixture('chunk_plan', {
 			chunks: [
-				{ taskId: 0, label: 'Shower', startTime: '07:00', endTime: '07:30', isLocked: false },
+				{
+					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
+				},
+				{
+					cycleName: 'Dinner', label: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false,
+					tasks: [],
+				},
+			],
+			reasoning: 'Dinner is informational.',
+		});
+
+		const result = await planService.generatePlan('2026-04-05');
+
+		const dinnerChunk = result.chunks.find(c => c.label === 'Dinner');
+		expect(dinnerChunk).toBeDefined();
+		expect(dinnerChunk!.isTaskSlot).toBe(false);
+
+		// Verify no chunkTasks for dinner chunk
+		const dinnerTasks = db.select().from(chunkTasks)
+			.where(eq(chunkTasks.chunkId, dinnerChunk!.id))
+			.all();
+		expect(dinnerTasks).toHaveLength(0);
+	});
+
+	it('essential tasks marked isLocked in chunk tasks', async () => {
+		const t1 = taskService.create({ name: 'Critical task', isEssential: true });
+
+		llm.setFixture('chunk_plan', {
+			chunks: [
+				{
+					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [{ taskId: t1.id, label: 'Critical task', isLocked: true }],
+				},
+			],
+			reasoning: 'Essential task locked.',
+		});
+
+		const result = await planService.generatePlan('2026-04-05');
+
+		const tasks = db.select().from(chunkTasks)
+			.where(eq(chunkTasks.chunkId, result.chunks[0].id))
+			.all();
+		expect(tasks).toHaveLength(1);
+		expect(tasks[0].isLocked).toBe(true);
+		expect(tasks[0].taskId).toBe(t1.id);
+	});
+
+	it('LLM can split long cycle into multiple chunks', async () => {
+		const t1 = taskService.create({ name: 'Task 1' });
+		const t2 = taskService.create({ name: 'Task 2' });
+		const t3 = taskService.create({ name: 'Task 3' });
+
+		llm.setFixture('chunk_plan', {
+			chunks: [
+				{
+					cycleName: 'Day cycle', label: 'Work block 1', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+					tasks: [{ taskId: t1.id, label: 'Task 1', isLocked: false }, { taskId: t2.id, label: 'Task 2', isLocked: false }],
+				},
+				{
+					cycleName: 'Day cycle', label: 'Work block 2', startTime: '14:00', endTime: '18:00', isTaskSlot: true,
+					tasks: [{ taskId: t3.id, label: 'Task 3', isLocked: false }],
+				},
+			],
+			reasoning: 'Split day cycle into two work blocks.',
+		});
+
+		const result = await planService.generatePlan('2026-04-05');
+
+		// Both chunks should have cycleName='Day cycle'
+		const dayCycleChunks = result.chunks.filter(c => c.cycleName === 'Day cycle');
+		expect(dayCycleChunks).toHaveLength(2);
+		expect(dayCycleChunks[0].label).toBe('Work block 1');
+		expect(dayCycleChunks[1].label).toBe('Work block 2');
+	});
+
+	it('drops hallucinated taskIds from chunk tasks', async () => {
+		const t1 = taskService.create({ name: 'Real task' });
+
+		llm.setFixture('chunk_plan', {
+			chunks: [
+				{
+					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [
+						{ taskId: t1.id, label: 'Real task', isLocked: false },
+						{ taskId: 999, label: 'Hallucinated task', isLocked: false },
+					],
+				},
+			],
+			reasoning: 'One task is hallucinated.',
+		});
+
+		const result = await planService.generatePlan('2026-04-05');
+
+		const tasks = db.select().from(chunkTasks)
+			.where(eq(chunkTasks.chunkId, result.chunks[0].id))
+			.all();
+		// Only the real task should exist; hallucinated one dropped
+		expect(tasks).toHaveLength(1);
+		expect(tasks[0].taskId).toBe(t1.id);
+		expect(tasks[0].label).toBe('Real task');
+	});
+
+	it('ensureTodayPlan returns undefined when no tree exists', async () => {
+		// Delete the day tree
+		db.delete(dayTrees).run();
+
+		const result = await planService.ensureTodayPlan();
+		expect(result).toBeUndefined();
+	});
+
+	it('ensureTodayPlan is idempotent', async () => {
+		const t1 = taskService.create({ name: 'Task A' });
+
+		llm.setFixture('chunk_plan', {
+			chunks: [
+				{
+					cycleName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
+				},
 			],
 			reasoning: 'Minimal plan.',
 		});
@@ -131,59 +241,18 @@ describe('DailyPlanService', () => {
 		const first = await planService.ensureTodayPlan();
 		const second = await planService.ensureTodayPlan();
 
+		expect(first).toBeDefined();
 		expect(first!.id).toBe(second!.id);
 
-		// Count plans in DB -- should be exactly 1
-		const todayPlan = planService.getTodayPlan();
-		expect(todayPlan).toBeDefined();
+		// Only one plan should exist
+		const plans = db.select().from(dailyPlans).all();
+		expect(plans).toHaveLength(1);
 	});
 
-	it('ensureTodayPlan() returns undefined when no active blueprint exists', async () => {
-		// Deactivate the blueprint by deleting it
-		blueprintService.deleteBlueprint(blueprintId);
+	it('generatePlan throws when no day tree exists', async () => {
+		db.delete(dayTrees).run();
 
-		const result = await planService.ensureTodayPlan();
-		expect(result).toBeUndefined();
-	});
-
-	it('getPlanChunks() returns chunks ordered by sortOrder', async () => {
-		const t1 = taskService.create({ name: 'Task A' });
-		const t2 = taskService.create({ name: 'Task B' });
-
-		llm.setFixture('daily_plan', {
-			chunks: [
-				{ taskId: t2.id, label: 'Task B', startTime: '08:30', endTime: '10:00', isLocked: false },
-				{ taskId: 0, label: 'Shower', startTime: '07:00', endTime: '07:30', isLocked: false },
-				{ taskId: t1.id, label: 'Task A', startTime: '07:30', endTime: '08:30', isLocked: false },
-			],
-			reasoning: 'Tasks out of order in LLM output.',
-		});
-
-		const result = await planService.generatePlan('2026-04-05');
-		const chunks = planService.getPlanChunks(result.id);
-
-		// Chunks should be ordered by sortOrder (0, 1, 2) as assigned during insertion
-		expect(chunks[0].sortOrder).toBeLessThan(chunks[1].sortOrder);
-		expect(chunks[1].sortOrder).toBeLessThan(chunks[2].sortOrder);
-	});
-
-	it('generatePlan() drops chunks with taskId that does not exist in pending tasks', async () => {
-		const t1 = taskService.create({ name: 'Real task' });
-
-		llm.setFixture('daily_plan', {
-			chunks: [
-				{ taskId: 0, label: 'Shower', startTime: '07:00', endTime: '07:30', isLocked: false },
-				{ taskId: t1.id, label: 'Real task', startTime: '07:30', endTime: '08:30', isLocked: false },
-				{ taskId: 999, label: 'Hallucinated', startTime: '08:30', endTime: '10:00', isLocked: false },
-			],
-			reasoning: 'One chunk has invalid taskId.',
-		});
-
-		const result = await planService.generatePlan('2026-04-05');
-		const chunks = planService.getPlanChunks(result.id);
-
-		// The chunk with taskId=999 should be dropped, keeping 2 chunks
-		expect(chunks).toHaveLength(2);
-		expect(chunks.find(c => c.label === 'Hallucinated')).toBeUndefined();
+		await expect(planService.generatePlan('2026-04-05'))
+			.rejects.toThrow('No day tree found.');
 	});
 });
