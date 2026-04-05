@@ -53,6 +53,12 @@ export function createTestDb() {
 			is_slot INTEGER NOT NULL DEFAULT 1,
 			sort_order INTEGER NOT NULL DEFAULT 0
 		);
+		CREATE TABLE IF NOT EXISTS day_trees (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tree TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
 		CREATE TABLE IF NOT EXISTS daily_plans (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			date TEXT NOT NULL UNIQUE,
