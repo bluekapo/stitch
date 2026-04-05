@@ -12,6 +12,7 @@ const envSchema = z.object({
 	STT_PROVIDER: z.enum(['whisper-server', 'mock']).default('mock'),
 	TELEGRAM_BOT_TOKEN: z.string().default(''),
 	TELEGRAM_ALLOWED_USER_ID: z.coerce.number().optional(),
+	RECURRENCE_CRON_TIME: z.string().default('0 5 * * *'),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

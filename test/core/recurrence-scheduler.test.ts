@@ -83,10 +83,10 @@ describe('RecurrenceScheduler', () => {
 		});
 
 		it('skips templates that already have an instance for today', () => {
-			vi.useFakeTimers();
-			vi.setSystemTime(new Date('2026-04-08T10:00:00')); // Wednesday
-
-			service.create({ name: 'Wed Meeting', taskType: 'weekly', recurrenceDay: 3 });
+			// Note: SQLite's datetime('now') uses real clock for created_at,
+			// but hasInstanceForDate checks date(created_at) against the JS-generated date string.
+			// Without fake timers, both use "today" so idempotency works.
+			service.create({ name: 'Wed Meeting', taskType: 'weekly', recurrenceDay: new Date().getDay() });
 
 			const first = scheduler.generateWeeklyTasks();
 			const second = scheduler.generateWeeklyTasks();
@@ -124,7 +124,7 @@ describe('RecurrenceScheduler', () => {
 			expect(instance).toBeDefined();
 			expect(instance!.name).toBe('Workout');
 			expect(instance!.description).toBe('Morning exercise');
-			expect(instance!.isEssential).toBe(1); // SQLite stores booleans as integers
+			expect(instance!.isEssential).toBe(true);
 		});
 	});
 });
