@@ -15,18 +15,20 @@ export function registerNlHandler(
 
 		try {
 			const parsed = await parser.parse(text);
+			// Only pass recurrenceDay for weekly tasks — LLM sometimes sets it spuriously
+			const recurrenceDay = parsed.taskType === 'weekly' ? parsed.recurrenceDay : undefined;
 			const task = taskService.create({
 				name: parsed.name,
 				description: parsed.description,
 				isEssential: parsed.isEssential,
 				taskType: parsed.taskType,
 				deadline: parsed.deadline,
-				recurrenceDay: parsed.recurrenceDay,
+				recurrenceDay,
 			});
 			let reply = `Task created: ${task.name} (#${task.id})`;
 			if (parsed.taskType !== 'ad-hoc') reply += `\nType: ${parsed.taskType}`;
 			if (parsed.deadline) reply += `\nDeadline: ${parsed.deadline}`;
-			if (parsed.recurrenceDay !== undefined) reply += `\nRecurs: day ${parsed.recurrenceDay}`;
+			if (recurrenceDay !== undefined) reply += `\nRecurs: day ${recurrenceDay}`;
 			await ctx.reply(reply);
 		} catch {
 			await ctx.reply('Could not parse that as a task. Try again or use "add <name>".');
