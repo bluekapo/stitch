@@ -1,12 +1,20 @@
 import type { StitchDb } from '../db/index.js';
 import { dayTrees } from '../db/schema.js';
 import type { LlmProvider } from '../providers/llm.js';
+import { withSoul } from '../prompts/soul.js';
 import { DayTreeLlmSchema } from '../schemas/day-tree.js';
 import type { DayTree } from '../types/day-tree.js';
 
-const TREE_SET_SYSTEM_PROMPT = `You are a day planner. Structure the user's day description into a day tree. Each branch represents a time period in the day. Branches with isTaskSlot=true are for assignable tasks. Branches with isTaskSlot=false are fixed activities (dinner, sleep). Items within branches describe fixed activities (type='fixed') or permissions/constraints (type='rule'). Use HH:MM format for all times. Order branches chronologically from earliest to latest.`;
+const TREE_SET_SYSTEM_PROMPT = `You are a day planner. Structure the user's day description into a day tree. Each branch represents a time period in the day. Branches with isTaskSlot=true are for assignable tasks. Branches with isTaskSlot=false are fixed activities (dinner, sleep). Items within branches describe fixed activities (type='fixed') or permissions/constraints (type='rule'). Use HH:MM format for all times. Order branches chronologically from earliest to latest.
 
-const TREE_EDIT_SYSTEM_PROMPT = `You are a day planner. Modify the existing day tree according to the user's request. Output the complete updated tree. Do not remove branches unless explicitly asked. Use HH:MM format for all times. Order branches chronologically.`;
+Terminology:
+- A BRANCH is a time period in the day tree (e.g., "Morning duties 08:00-10:00"). Branches are structural -- they define the skeleton.
+- A CHUNK is a group of tasks assigned to a branch during plan generation. You are NOT creating chunks here -- only branches.`;
+
+const TREE_EDIT_SYSTEM_PROMPT = `You are a day planner. Modify the existing day tree according to the user's request. Output the complete updated tree. Do not remove branches unless explicitly asked. Use HH:MM format for all times. Order branches chronologically.
+
+Terminology:
+- A BRANCH is a time period. A CHUNK is a group of tasks within a branch. You are editing branches, not chunks.`;
 
 export class DayTreeService {
 	constructor(
@@ -30,7 +38,7 @@ export class DayTreeService {
 	async setTree(description: string): Promise<DayTree> {
 		const result = await this.llmProvider.complete({
 			messages: [
-				{ role: 'system', content: TREE_SET_SYSTEM_PROMPT },
+				{ role: 'system', content: withSoul(TREE_SET_SYSTEM_PROMPT) },
 				{ role: 'user', content: description },
 			],
 			schema: DayTreeLlmSchema,
@@ -54,7 +62,7 @@ export class DayTreeService {
 
 		const result = await this.llmProvider.complete({
 			messages: [
-				{ role: 'system', content: TREE_EDIT_SYSTEM_PROMPT },
+				{ role: 'system', content: withSoul(TREE_EDIT_SYSTEM_PROMPT) },
 				{ role: 'user', content: `Current tree:\n${JSON.stringify(current, null, 2)}\n\nModification: ${modification}` },
 			],
 			schema: DayTreeLlmSchema,

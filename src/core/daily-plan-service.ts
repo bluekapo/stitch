@@ -5,6 +5,7 @@ import { dailyPlans, planChunks, chunkTasks } from '../db/schema.js';
 import type { DayTreeService } from './day-tree-service.js';
 import type { TaskService } from './task-service.js';
 import type { LlmProvider } from '../providers/llm.js';
+import { withSoul } from '../prompts/soul.js';
 import { ChunkPlanLlmSchema } from '../schemas/daily-plan.js';
 import type { DailyPlan, PlanChunk, ChunkTask } from '../types/daily-plan.js';
 import type { DayTree } from '../types/day-tree.js';
@@ -165,7 +166,7 @@ export class DailyPlanService {
 		}).join('\n');
 
 		return {
-			system: `You are a daily planner. Create a day plan by assigning tasks to the day tree's task-slot branches.
+			system: withSoul(`You are a daily planner. Create a day plan by assigning tasks to the day tree's task-slot branches.
 
 Rules:
 - For each branch with isTaskSlot=true, create one or more chunks and assign tasks from the pending pool.
@@ -177,7 +178,10 @@ Rules:
 - Each chunk must have a valid branchName matching a branch in the tree.
 - Order chunks by startTime.
 - If fewer tasks than capacity, create fewer chunks with available tasks.
-- Today's date: ${today}`,
+- Today's date: ${today}
+
+Terminology:
+- A BRANCH is a structural time period from the day tree. A CHUNK is a group of tasks you create within a branch. One branch can have multiple chunks.`),
 			user: `Day tree:\n${treeText}\n\nPending tasks:\n${taskText}`,
 		};
 	}

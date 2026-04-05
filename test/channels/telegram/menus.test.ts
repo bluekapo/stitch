@@ -48,6 +48,11 @@ describe('Menu factories', () => {
 		expect(menu).toBeInstanceOf(Menu);
 	});
 
+	it('createDayPlanMenu accepts optional dayTreeService', () => {
+		const menu = createDayPlanMenu(undefined);
+		expect(menu).toBeInstanceOf(Menu);
+	});
+
 	it('createTasksMenu returns tasksMenu and taskDetailMenu as Menu instances', () => {
 		const { tasksMenu, taskDetailMenu } = createTasksMenu(makeTaskService());
 		expect(tasksMenu).toBeInstanceOf(Menu);
@@ -107,13 +112,30 @@ describe('registerMenus', () => {
 		expect(editPayload.parse_mode).toBe('HTML');
 	});
 
+	it('View Day Tree button answers callback when no service', async () => {
+		const { bot, outgoing } = createTestBot();
+		const { dayPlanMenu } = registerMenus(bot, makeTaskService());
+
+		// Render the day-plan submenu to get the callback_data for "View Day Tree" (row 0, col 0)
+		const rendered = await dayPlanMenu.render(renderCtx);
+		const treeBtn = rendered[0][0] as { callback_data: string; text: string };
+		expect(treeBtn.text).toBe('View Day Tree');
+
+		// Fire the button press
+		await bot.handleUpdate(callbackQueryUpdate(treeBtn.callback_data) as never);
+
+		// Should answer callback query (no dayTreeService passed)
+		const answerCalls = outgoing.filter((c) => c.method === 'answerCallbackQuery');
+		expect(answerCalls.length).toBeGreaterThanOrEqual(1);
+	});
+
 	it('Back to Hub button triggers editMessageText with hub content', async () => {
 		const { bot, outgoing } = createTestBot();
 		const { dayPlanMenu } = registerMenus(bot, makeTaskService());
 
-		// Render the day-plan submenu to get the callback_data for "<< Back to Hub" (row 0, col 0)
+		// Render the day-plan submenu to get the callback_data for "<< Back to Hub" (row 1, col 0)
 		const rendered = await dayPlanMenu.render(renderCtx);
-		const backBtn = rendered[0][0] as { callback_data: string; text: string };
+		const backBtn = rendered[1][0] as { callback_data: string; text: string };
 		expect(backBtn.text).toBe('<< Back to Hub');
 
 		// Fire the button press through the bot
