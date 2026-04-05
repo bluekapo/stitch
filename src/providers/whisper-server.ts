@@ -1,3 +1,4 @@
+import { convertToWav } from './audio-convert.js';
 import type { SttProvider, TranscribeResult } from './stt.js';
 
 export class WhisperServerProvider implements SttProvider {
@@ -8,22 +9,23 @@ export class WhisperServerProvider implements SttProvider {
 	}
 
 	async transcribe(audio: Buffer, mimeType: string): Promise<TranscribeResult> {
-		// Pitfall 4: whisper-server uses filename extension for format detection
-		const extMap: Record<string, string> = {
-			'audio/wav': 'wav',
-			'audio/ogg': 'ogg',
-			'audio/mpeg': 'mp3',
-			'audio/mp4': 'm4a',
-		};
-		const ext = extMap[mimeType] ?? 'audio';
+		// whisper.cpp server requires WAV format — convert non-WAV audio
+		let audioData = audio;
+		let finalMimeType = mimeType;
+
+		if (mimeType !== 'audio/wav') {
+			audioData = await convertToWav(audio);
+			finalMimeType = 'audio/wav';
+		}
+
 		// Copy Buffer into a plain ArrayBuffer for Blob compatibility (avoids TS SharedArrayBuffer issue)
-		const arrayBuffer = audio.buffer.slice(
-			audio.byteOffset,
-			audio.byteOffset + audio.byteLength,
+		const arrayBuffer = audioData.buffer.slice(
+			audioData.byteOffset,
+			audioData.byteOffset + audioData.byteLength,
 		) as ArrayBuffer;
-		const blob = new Blob([arrayBuffer], { type: mimeType });
+		const blob = new Blob([arrayBuffer], { type: finalMimeType });
 		const form = new FormData();
-		form.append('file', blob, `audio.${ext}`);
+		form.append('file', blob, 'audio.wav');
 		form.append('response_format', 'json');
 
 		const response = await fetch(`${this.baseURL}/v1/audio/transcriptions`, {

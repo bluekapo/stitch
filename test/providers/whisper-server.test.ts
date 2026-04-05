@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WhisperServerProvider } from '../../src/providers/whisper-server.js';
+import * as audioConvert from '../../src/providers/audio-convert.js';
 
 describe('WhisperServerProvider', () => {
 	describe('transcribe', () => {
@@ -52,6 +53,63 @@ describe('WhisperServerProvider', () => {
 			await expect(provider.transcribe(Buffer.from('bad-audio'), 'audio/wav')).rejects.toThrow(
 				'HTTP 400',
 			);
+		});
+
+		it('skips conversion when mimeType is already audio/wav', async () => {
+			vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+				new Response(JSON.stringify({ text: 'hello' }), { status: 200 }),
+			);
+
+			const convertSpy = vi.spyOn(audioConvert, 'convertToWav');
+
+			const provider = new WhisperServerProvider({
+				baseURL: 'http://localhost:8081',
+			});
+
+			await provider.transcribe(Buffer.from('wav-data'), 'audio/wav');
+
+			expect(convertSpy).not.toHaveBeenCalled();
+		});
+
+		it('converts OGG audio to WAV before sending to whisper-server', async () => {
+			const fakeWav = Buffer.from('converted-wav-data');
+			vi.spyOn(audioConvert, 'convertToWav').mockResolvedValueOnce(fakeWav);
+
+			const fetchSpy = vi
+				.spyOn(globalThis, 'fetch')
+				.mockResolvedValueOnce(
+					new Response(JSON.stringify({ text: 'transcribed from ogg' }), { status: 200 }),
+				);
+
+			const provider = new WhisperServerProvider({
+				baseURL: 'http://localhost:8081',
+			});
+
+			const result = await provider.transcribe(Buffer.from('ogg-data'), 'audio/ogg');
+
+			expect(audioConvert.convertToWav).toHaveBeenCalledWith(Buffer.from('ogg-data'));
+			expect(result).toEqual({ text: 'transcribed from ogg' });
+
+			// Verify the FormData was sent with audio.wav filename
+			const [, options] = fetchSpy.mock.calls[0];
+			const body = options?.body as FormData;
+			const file = body.get('file') as File;
+			expect(file.name).toBe('audio.wav');
+			expect(file.type).toBe('audio/wav');
+		});
+
+		it('propagates ffmpeg conversion errors', async () => {
+			vi.spyOn(audioConvert, 'convertToWav').mockRejectedValueOnce(
+				new Error('ffmpeg not found or failed to start: spawn ffmpeg ENOENT'),
+			);
+
+			const provider = new WhisperServerProvider({
+				baseURL: 'http://localhost:8081',
+			});
+
+			await expect(
+				provider.transcribe(Buffer.from('ogg-data'), 'audio/ogg'),
+			).rejects.toThrow('ffmpeg not found or failed to start');
 		});
 	});
 
