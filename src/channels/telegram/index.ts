@@ -1,8 +1,11 @@
 import type { Bot } from 'grammy';
 import type { AppConfig } from '../../config.js';
+import { TaskParserService } from '../../core/task-parser.js';
 import type { TaskService } from '../../core/task-service.js';
+import type { LlmProvider } from '../../providers/llm.js';
 import { createBot } from './bot.js';
 import { autoCleanup } from './cleanup.js';
+import { registerNlHandler } from './handlers/nl-handler.js';
 import { registerTaskHandlers } from './handlers/task-handlers.js';
 import { HubManager } from './hub.js';
 import { registerMenus } from './menus/index.js';
@@ -17,10 +20,11 @@ export interface TelegramChannel {
 export interface TelegramSetupOptions {
 	config: AppConfig;
 	taskService: TaskService;
+	llmProvider: LlmProvider;
 }
 
 export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {
-	const { config, taskService } = options;
+	const { config, taskService, llmProvider } = options;
 
 	const bot = createBot({
 		token: config.TELEGRAM_BOT_TOKEN,
@@ -46,6 +50,10 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 
 	// Text command handlers (registered AFTER /start, BEFORE autoCleanup per Pitfall 1)
 	registerTaskHandlers(bot, taskService);
+
+	// NL handler: catch-all for unmatched text, parses via LLM (registered AFTER task handlers)
+	const parser = new TaskParserService(llmProvider);
+	registerNlHandler(bot, parser, taskService);
 
 	// Auto-cleanup for text messages (catch-all, registered LAST per Pitfall 1 & 6)
 	bot.on('message:text', autoCleanup);

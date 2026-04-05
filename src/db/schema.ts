@@ -19,8 +19,7 @@ export const tasks = sqliteTable('tasks', {
 	}).notNull().default('ad-hoc'),
 	recurrenceDay: integer('recurrence_day'),
 	deadline: text('deadline'),
-	sourceTaskId: integer('source_task_id')
-		.references(() => tasks.id, { onDelete: 'set null' }),
+	sourceTaskId: integer('source_task_id'), // FK to tasks.id (self-ref, enforced in DDL)
 	timerStartedAt: text('timer_started_at'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
