@@ -14,6 +14,10 @@ export function createTestDb() {
 			status TEXT NOT NULL DEFAULT 'pending',
 			is_essential INTEGER NOT NULL DEFAULT 0,
 			postpone_count INTEGER NOT NULL DEFAULT 0,
+			task_type TEXT NOT NULL DEFAULT 'ad-hoc',
+			recurrence_day INTEGER,
+			deadline TEXT,
+			source_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
 			timer_started_at TEXT,
 			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))

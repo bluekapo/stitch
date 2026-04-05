@@ -13,6 +13,10 @@ export class TaskService {
 				name: input.name,
 				description: input.description,
 				isEssential: input.isEssential ?? false,
+				taskType: input.taskType ?? 'ad-hoc',
+				recurrenceDay: input.recurrenceDay,
+				deadline: input.deadline,
+				sourceTaskId: input.sourceTaskId,
 			})
 			.returning({ id: tasks.id, name: tasks.name })
 			.all();
@@ -137,6 +141,31 @@ export class TaskService {
 			createdAt: task.createdAt,
 			totalDurationSeconds,
 		};
+	}
+
+	getRecurringTemplates(type: 'daily' | 'weekly') {
+		return this.db.select().from(tasks)
+			.where(eq(tasks.taskType, type))
+			.all();
+	}
+
+	hasInstanceForDate(sourceTaskId: number, dateStr: string): boolean {
+		const row = this.db.select({ id: tasks.id }).from(tasks)
+			.where(
+				sql`source_task_id = ${sourceTaskId} AND date(created_at) = ${dateStr}`,
+			)
+			.get();
+		return !!row;
+	}
+
+	createInstance(template: { id: number; name: string; description: string | null; isEssential: boolean }, dateStr: string) {
+		return this.create({
+			name: template.name,
+			description: template.description ?? undefined,
+			isEssential: template.isEssential,
+			taskType: 'one-time',
+			sourceTaskId: template.id,
+		});
 	}
 
 	checkOrphanedTimers() {

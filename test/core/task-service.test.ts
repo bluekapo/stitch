@@ -239,6 +239,87 @@ describe('TaskService', () => {
 		});
 	});
 
+	describe('task types (TASK-04)', () => {
+		it('creates task with taskType="daily" and retrieves it', () => {
+			const result = service.create({ name: 'Morning workout', isEssential: false, taskType: 'daily' });
+			const task = service.getById(result.id);
+			expect(task?.taskType).toBe('daily');
+		});
+
+		it('creates task with taskType="weekly" and recurrenceDay=1', () => {
+			const result = service.create({ name: 'Team standup', isEssential: false, taskType: 'weekly', recurrenceDay: 1 });
+			const task = service.getById(result.id);
+			expect(task?.taskType).toBe('weekly');
+			expect(task?.recurrenceDay).toBe(1);
+		});
+
+		it('creates task with deadline ISO string', () => {
+			const deadline = '2026-04-15T17:00:00.000Z';
+			const result = service.create({ name: 'File taxes', isEssential: false, taskType: 'one-time', deadline });
+			const task = service.getById(result.id);
+			expect(task?.deadline).toBe(deadline);
+		});
+
+		it('creates task with sourceTaskId linking to another task', () => {
+			const template = service.create({ name: 'Daily workout', isEssential: false, taskType: 'daily' });
+			const instance = service.create({ name: 'Daily workout', isEssential: false, taskType: 'one-time', sourceTaskId: template.id });
+			const task = service.getById(instance.id);
+			expect(task?.sourceTaskId).toBe(template.id);
+		});
+
+		it('defaults taskType to "ad-hoc" and others to null when not provided', () => {
+			const result = service.create({ name: 'Quick task', isEssential: false });
+			const task = service.getById(result.id);
+			expect(task?.taskType).toBe('ad-hoc');
+			expect(task?.recurrenceDay).toBeNull();
+			expect(task?.deadline).toBeNull();
+			expect(task?.sourceTaskId).toBeNull();
+		});
+	});
+
+	describe('recurring helpers', () => {
+		it('getRecurringTemplates returns daily tasks', () => {
+			service.create({ name: 'Workout', isEssential: false, taskType: 'daily' });
+			service.create({ name: 'Ad-hoc thing', isEssential: false });
+			const dailies = service.getRecurringTemplates('daily');
+			expect(dailies).toHaveLength(1);
+			expect(dailies[0].name).toBe('Workout');
+		});
+
+		it('getRecurringTemplates returns weekly tasks', () => {
+			service.create({ name: 'Team meeting', isEssential: false, taskType: 'weekly', recurrenceDay: 1 });
+			service.create({ name: 'Ad-hoc', isEssential: false });
+			const weeklies = service.getRecurringTemplates('weekly');
+			expect(weeklies).toHaveLength(1);
+			expect(weeklies[0].name).toBe('Team meeting');
+		});
+
+		it('hasInstanceForDate returns false when no instance exists', () => {
+			const template = service.create({ name: 'Daily workout', isEssential: false, taskType: 'daily' });
+			const result = service.hasInstanceForDate(template.id, '2026-04-05');
+			expect(result).toBe(false);
+		});
+
+		it('hasInstanceForDate returns true when instance exists for date', () => {
+			const template = service.create({ name: 'Daily workout', isEssential: false, taskType: 'daily' });
+			service.create({ name: 'Daily workout', isEssential: false, taskType: 'one-time', sourceTaskId: template.id });
+			const today = new Date().toISOString().split('T')[0];
+			const result = service.hasInstanceForDate(template.id, today);
+			expect(result).toBe(true);
+		});
+
+		it('createInstance creates a one-time task linked to template', () => {
+			const template = service.create({ name: 'Daily workout', isEssential: true, taskType: 'daily' });
+			const templateTask = service.getById(template.id)!;
+			const instance = service.createInstance(templateTask, '2026-04-05');
+			const task = service.getById(instance.id);
+			expect(task?.name).toBe('Daily workout');
+			expect(task?.taskType).toBe('one-time');
+			expect(task?.sourceTaskId).toBe(template.id);
+			expect(task?.isEssential).toBe(true);
+		});
+	});
+
 	describe('checkOrphanedTimers', () => {
 		it('returns tasks with running timers', () => {
 			const t1 = service.create({ name: 'Task 1', isEssential: false });

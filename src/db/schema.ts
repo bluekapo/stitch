@@ -14,6 +14,13 @@ export const tasks = sqliteTable('tasks', {
 		.notNull()
 		.default(false),
 	postponeCount: integer('postpone_count').notNull().default(0),
+	taskType: text('task_type', {
+		enum: ['one-time', 'daily', 'weekly', 'ad-hoc'],
+	}).notNull().default('ad-hoc'),
+	recurrenceDay: integer('recurrence_day'),
+	deadline: text('deadline'),
+	sourceTaskId: integer('source_task_id')
+		.references(() => tasks.id, { onDelete: 'set null' }),
 	timerStartedAt: text('timer_started_at'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),

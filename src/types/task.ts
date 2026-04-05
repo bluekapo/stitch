@@ -4,6 +4,10 @@ export const createTaskSchema = z.object({
 	name: z.string().min(1).max(200),
 	description: z.string().max(1000).optional(),
 	isEssential: z.boolean().optional().default(false),
+	taskType: z.enum(['one-time', 'daily', 'weekly', 'ad-hoc']).optional().default('ad-hoc'),
+	recurrenceDay: z.number().int().min(0).max(6).optional(),
+	deadline: z.string().optional(),
+	sourceTaskId: z.number().int().positive().optional(),
 });
 
 export const updateTaskSchema = z.object({
