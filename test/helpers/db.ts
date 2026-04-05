@@ -53,6 +53,25 @@ export function createTestDb() {
 			is_slot INTEGER NOT NULL DEFAULT 1,
 			sort_order INTEGER NOT NULL DEFAULT 0
 		);
+		CREATE TABLE IF NOT EXISTS daily_plans (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			date TEXT NOT NULL UNIQUE,
+			blueprint_id INTEGER NOT NULL REFERENCES blueprints(id),
+			status TEXT NOT NULL DEFAULT 'active',
+			llm_reasoning TEXT,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE IF NOT EXISTS plan_chunks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			plan_id INTEGER NOT NULL REFERENCES daily_plans(id) ON DELETE CASCADE,
+			task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+			label TEXT NOT NULL,
+			start_time TEXT NOT NULL,
+			end_time TEXT NOT NULL,
+			is_locked INTEGER NOT NULL DEFAULT 0,
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'pending'
+		);
 	`);
 	return drizzle(sqlite, { schema });
 }

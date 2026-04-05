@@ -14,6 +14,7 @@ export function createDb(dbPath: string) {
 	sqlite.pragma('journal_mode = WAL');
 	migrateSchema(sqlite);
 	migrateBlueprintSchema(sqlite);
+	migrateDailyPlanSchema(sqlite);
 	return drizzle(sqlite, { schema });
 }
 
@@ -33,6 +34,36 @@ function migrateSchema(sqlite: Database.Database) {
 			sqlite.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
 		}
 	}
+}
+
+/** Create daily plan tables if they don't exist yet. */
+function migrateDailyPlanSchema(sqlite: Database.Database) {
+	const row = sqlite
+		.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_plans'")
+		.get() as { name: string } | undefined;
+	if (row) return;
+
+	sqlite.exec(`
+		CREATE TABLE daily_plans (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			date TEXT NOT NULL UNIQUE,
+			blueprint_id INTEGER NOT NULL REFERENCES blueprints(id),
+			status TEXT NOT NULL DEFAULT 'active',
+			llm_reasoning TEXT,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE plan_chunks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			plan_id INTEGER NOT NULL REFERENCES daily_plans(id) ON DELETE CASCADE,
+			task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+			label TEXT NOT NULL,
+			start_time TEXT NOT NULL,
+			end_time TEXT NOT NULL,
+			is_locked INTEGER NOT NULL DEFAULT 0,
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'pending'
+		);
+	`);
 }
 
 /** Create blueprint tables if they don't exist yet. */
