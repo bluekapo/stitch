@@ -38,10 +38,6 @@ export function createHubMenu(taskService: TaskService, dailyPlanService?: Daily
 			const allTasks = taskService.list() as TaskListItem[];
 			ctx.menu.nav('tasks');
 			await ctx.editMessageText(renderTasksView(allTasks), { parse_mode: 'HTML' });
-		})
-		.row()
-		.text('Status', async (ctx) => {
-			await ctx.answerCallbackQuery('Status: idle');
 		});
 
 	return menu;

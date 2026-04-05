@@ -40,7 +40,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 	});
 
 	const hub = new HubManager(bot.api);
-	const { hubMenu } = registerMenus(bot, taskService, dailyPlanService);
+	const { hubMenu } = registerMenus(bot, taskService, dailyPlanService, dayTreeService);
 
 	// /start command: send or refresh hub
 	bot.command('start', async (ctx) => {
