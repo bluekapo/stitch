@@ -1,5 +1,5 @@
-import type { FullBlueprint } from '../../types/blueprint.js';
 import type { DailyPlanView } from '../../types/daily-plan.js';
+import type { DayTree } from '../../types/day-tree.js';
 import type { TaskDetail, TaskListItem } from '../../types/task.js';
 
 export function escapeHtml(text: string): string {
@@ -59,13 +59,29 @@ export function renderHubView(state: HubViewState): string {
 	].join('\n');
 }
 
+export function renderTreeView(tree: DayTree): string {
+	const lines: string[] = ['<b>-- Day Tree --</b>', ''];
+	for (const cycle of tree.cycles) {
+		const slotIcon = cycle.isTaskSlot ? '[tasks]' : '[fixed]';
+		lines.push(`<b>${escapeHtml(cycle.name)}</b> (${cycle.startTime}-${cycle.endTime}) ${slotIcon}`);
+		if (cycle.items?.length) {
+			for (const item of cycle.items) {
+				const icon = item.type === 'fixed' ? '  -' : '  *';
+				lines.push(`${icon} ${escapeHtml(item.label)}`);
+			}
+		}
+		lines.push('');
+	}
+	return lines.join('\n');
+}
+
 export function renderDayPlanView(plan: DailyPlanView | undefined): string {
 	if (!plan) {
 		return [
 			'<b>-- Day Plan --</b>',
 			'',
 			'<i>No plan for today yet.</i>',
-			'<i>Set an active blueprint and restart to generate.</i>',
+			'<i>Set a day tree and restart to generate.</i>',
 		].join('\n');
 	}
 
@@ -75,12 +91,22 @@ export function renderDayPlanView(plan: DailyPlanView | undefined): string {
 	];
 
 	for (const chunk of plan.chunks) {
-		const lockIcon = chunk.isLocked ? ' \uD83D\uDD12' : '';
 		const statusIcon = chunk.status === 'completed' ? '\u2705 '
 			: chunk.status === 'active' ? '\u25B6 '
 			: chunk.status === 'skipped' ? '\u23ED '
 			: '';
-		lines.push(`${statusIcon}<b>${chunk.startTime}-${chunk.endTime}</b>${lockIcon} ${escapeHtml(chunk.label)}`);
+		lines.push(`${statusIcon}<b>${chunk.startTime}-${chunk.endTime}</b> ${escapeHtml(chunk.label)}`);
+
+		if (chunk.tasks.length > 0) {
+			for (const task of chunk.tasks) {
+				const lockIcon = task.isLocked ? ' \uD83D\uDD12' : '';
+				const taskStatus = task.status === 'completed' ? '\u2705 '
+					: task.status === 'active' ? '\u25B6 '
+					: '  ';
+				lines.push(`  ${taskStatus}${escapeHtml(task.label)}${lockIcon}`);
+			}
+		}
+		lines.push('');
 	}
 
 	return lines.join('\n');
@@ -151,27 +177,3 @@ export function renderTaskListText(tasks: TaskListItem[]): string {
 		.join('\n');
 }
 
-export function renderBlueprintView(blueprint: FullBlueprint): string {
-	const lines: string[] = [
-		`<b>-- Blueprint: ${escapeHtml(blueprint.name)} --</b>`,
-		blueprint.isActive ? '<i>Active</i>' : '<i>Inactive</i>',
-		'',
-	];
-
-	for (const cycle of blueprint.cycles) {
-		lines.push(`<b>${escapeHtml(cycle.name)}</b> (${cycle.startTime}-${cycle.endTime})`);
-		for (const block of cycle.timeBlocks) {
-			const icon = block.isSlot ? '\u2B1C' : '\u2705';
-			const label = block.label ? escapeHtml(block.label) : '<i>Available slot</i>';
-			lines.push(`  ${icon} ${block.startTime}-${block.endTime} ${label}`);
-		}
-		lines.push('');
-	}
-
-	return lines.join('\n');
-}
-
-export function renderBlueprintListText(blueprints: { id: number; name: string; isActive: boolean }[]): string {
-	if (blueprints.length === 0) return 'No blueprints. Use "blueprint create Name" to create one.';
-	return blueprints.map(b => `${b.id}. ${b.isActive ? '\u2705 ' : ''}${b.name}`).join('\n');
-}

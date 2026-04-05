@@ -1,11 +1,13 @@
+import type { DayTreeService } from '../../../core/day-tree-service.js';
 import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
 import { createTaskSchema } from '../../../types/task.js';
-import { renderTaskListText, formatDuration } from '../views.js';
+import { renderTaskListText, formatDuration, renderTreeView } from '../views.js';
 
 export interface TextRouterDeps {
 	taskService: TaskService;
 	parser: TaskParserService;
+	dayTreeService?: DayTreeService;
 }
 
 /**
@@ -97,6 +99,30 @@ export async function routeTextInput(
 			taskService.postpone(id);
 			const updated = taskService.getById(id);
 			return { reply: `Postponed: ${updated!.name} (#${id}) -- ${updated!.postponeCount} times total` };
+		}
+
+		// --- Tree commands (per D-08, D-09) ---
+		if (deps.dayTreeService) {
+			// tree show (most specific -- check first)
+			if (/^tree show$/i.test(text)) {
+				const tree = deps.dayTreeService.getTree();
+				if (!tree) return { reply: 'No day tree set. Use "tree <description>" to create one.' };
+				return { reply: renderTreeView(tree) };
+			}
+
+			// tree edit <modification> (check before catch-all "tree <description>")
+			const editMatch = text.match(/^tree edit (.+)$/is);
+			if (editMatch) {
+				const tree = await deps.dayTreeService.editTree(editMatch[1].trim());
+				return { reply: `Day tree updated.\n\n${renderTreeView(tree)}` };
+			}
+
+			// tree <description> (catch-all for tree prefix)
+			const treeMatch = text.match(/^tree (.+)$/is);
+			if (treeMatch) {
+				const tree = await deps.dayTreeService.setTree(treeMatch[1].trim());
+				return { reply: `Day tree created.\n\n${renderTreeView(tree)}` };
+			}
 		}
 
 		// NL fallback: parse via LLM
