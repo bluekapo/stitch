@@ -30,21 +30,17 @@ export class HubManager {
 			}
 		}
 
-		// If hub exists, try to edit in place (prevents duplicate hubs on repeated /start)
-		// Don't pass reply_markup here — bot.api bypasses the menu transformer,
-		// and the existing keyboard is already on the message.
+		// If hub exists, delete old message so we can send a fresh one.
+		// We must send through ctx.reply (not bot.api.editMessageText) so grammY's
+		// menu transformer installs the keyboard fingerprint correctly.
 		if (this.ref && this.ref.chatId === chatId) {
 			try {
-				await this.api.editMessageText(this.ref.chatId, this.ref.messageId, text, {
-					parse_mode: 'HTML',
-				});
-				return;
-			} catch (err: unknown) {
-				if (err instanceof Error && err.message.includes('message is not modified')) {
-					return; // Content unchanged, no edit needed
-				}
-				// Message was deleted or too old -- fall through to send new one
+				await this.api.deleteMessage(this.ref.chatId, this.ref.messageId);
+			} catch {
+				// Message already deleted or too old -- fine, proceed to send new
 			}
+			this.ref = null;
+			// Fall through to send-new path below
 		}
 
 		// grammY menus must be sent through ctx.reply — bot.api bypasses the
