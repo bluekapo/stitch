@@ -4,6 +4,7 @@ import type { DailyPlanService } from '../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../core/day-tree-service.js';
 import { TaskParserService } from '../../core/task-parser.js';
 import type { TaskService } from '../../core/task-service.js';
+import type { StitchDb } from '../../db/index.js';
 import type { LlmProvider } from '../../providers/llm.js';
 import type { SttProvider } from '../../providers/stt.js';
 import { createBot } from './bot.js';
@@ -24,13 +25,14 @@ export interface TelegramSetupOptions {
 	config: AppConfig;
 	taskService: TaskService;
 	llmProvider: LlmProvider;
+	db?: StitchDb;
 	dayTreeService?: DayTreeService;
 	dailyPlanService?: DailyPlanService;
 	sttProvider?: SttProvider;
 }
 
 export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {
-	const { config, taskService, llmProvider, dayTreeService, dailyPlanService, sttProvider } = options;
+	const { config, taskService, llmProvider, db, dayTreeService, dailyPlanService, sttProvider } = options;
 
 	const bot = createBot({
 		token: config.TELEGRAM_BOT_TOKEN,
@@ -58,7 +60,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 
 	// Voice handler: transcribe → routeTextInput → cleanup
 	if (sttProvider) {
-		registerVoiceHandler(bot, sttProvider, taskService, parser, config.TELEGRAM_BOT_TOKEN, dayTreeService);
+		registerVoiceHandler(bot, sttProvider, taskService, parser, config.TELEGRAM_BOT_TOKEN, dayTreeService, db);
 	}
 
 	// Unified text handler: routeTextInput handles all commands + NL fallback, with cleanup
@@ -70,7 +72,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		const result = await routeTextInput(text, { taskService, parser, dayTreeService });
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply, { parse_mode: 'HTML' });
-			scheduleCleanup(ctx, chatId, userMsgId, reply.message_id);
+			scheduleCleanup(ctx, chatId, userMsgId, reply.message_id, db);
 		}
 	});
 

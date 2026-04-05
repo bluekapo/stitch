@@ -117,3 +117,11 @@ export const chunkTasks = sqliteTable('chunk_tasks', {
 		enum: ['pending', 'active', 'completed', 'skipped'],
 	}).notNull().default('pending'),
 });
+
+export const pendingCleanups = sqliteTable('pending_cleanups', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	chatId: integer('chat_id').notNull(),
+	userMsgId: integer('user_msg_id').notNull(),
+	replyMsgId: integer('reply_msg_id'),
+	deleteAfter: text('delete_after').notNull(),
+});

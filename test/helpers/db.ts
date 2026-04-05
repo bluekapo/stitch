@@ -90,6 +90,13 @@ export function createTestDb() {
 			sort_order INTEGER NOT NULL DEFAULT 0,
 			status TEXT NOT NULL DEFAULT 'pending'
 		);
+		CREATE TABLE IF NOT EXISTS pending_cleanups (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chat_id INTEGER NOT NULL,
+			user_msg_id INTEGER NOT NULL,
+			reply_msg_id INTEGER,
+			delete_after TEXT NOT NULL
+		);
 	`);
 	return drizzle(sqlite, { schema });
 }

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import type { Bot } from 'grammy';
 import { setupTelegramBot } from './channels/telegram/index.js';
+import { flushPendingCleanups } from './channels/telegram/cleanup.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
 import { DayTreeService } from './core/day-tree-service.js';
 import type { StitchContext } from './channels/telegram/types.js';
@@ -67,7 +68,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	if (options.telegramBot) {
 		app.decorate('bot', options.telegramBot);
 	} else if (config.TELEGRAM_BOT_TOKEN) {
-		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, dayTreeService, dailyPlanService, sttProvider });
+		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, db, dayTreeService, dailyPlanService, sttProvider });
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);
 	}
@@ -93,6 +94,19 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 			app.log.warn(
 				`STT provider unavailable: ${sttHealth.error}. App will still serve but STT calls will fail.`,
 			);
+		}
+
+		// Flush any pending message cleanups from previous run
+		const botInstance = (app as unknown as { bot?: Bot<StitchContext> }).bot;
+		if (botInstance) {
+			try {
+				const flushed = await flushPendingCleanups(db, botInstance.api);
+				if (flushed > 0) {
+					app.log.info(`Flushed ${flushed} pending message cleanup(s) from previous run`);
+				}
+			} catch (err) {
+				app.log.warn({ err }, 'Failed to flush pending cleanups on startup');
+			}
 		}
 
 		// Start recurrence scheduler and generate any missed tasks for today

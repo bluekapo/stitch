@@ -16,6 +16,7 @@ export function createDb(dbPath: string) {
 	migrateBlueprintSchema(sqlite);
 	migrateDailyPlanSchema(sqlite);
 	migrateDayTreeSchema(sqlite);
+	migratePendingCleanupsSchema(sqlite);
 	return drizzle(sqlite, { schema });
 }
 
@@ -156,6 +157,24 @@ function migrateDayTreeSchema(sqlite: Database.Database) {
 			tree TEXT NOT NULL,
 			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+	`);
+}
+
+/** Create pending_cleanups table if it doesn't exist yet. */
+function migratePendingCleanupsSchema(sqlite: Database.Database) {
+	const row = sqlite
+		.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_cleanups'")
+		.get() as { name: string } | undefined;
+	if (row) return;
+
+	sqlite.exec(`
+		CREATE TABLE pending_cleanups (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chat_id INTEGER NOT NULL,
+			user_msg_id INTEGER NOT NULL,
+			reply_msg_id INTEGER,
+			delete_after TEXT NOT NULL
 		);
 	`);
 }

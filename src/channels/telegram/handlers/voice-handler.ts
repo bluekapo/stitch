@@ -1,5 +1,6 @@
 import type { Bot } from 'grammy';
 import type { DayTreeService } from '../../../core/day-tree-service.js';
+import type { StitchDb } from '../../../db/index.js';
 import type { SttProvider } from '../../../providers/stt.js';
 import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
@@ -14,6 +15,7 @@ export function registerVoiceHandler(
 	parser: TaskParserService,
 	botToken: string,
 	dayTreeService?: DayTreeService,
+	db?: StitchDb,
 ): void {
 	bot.on('message:voice', async (ctx) => {
 		const chatId = ctx.chat.id;
@@ -25,7 +27,7 @@ export function registerVoiceHandler(
 			const file = await ctx.getFile();
 			if (!file.file_path) {
 				const reply = await ctx.reply('Could not access voice message.');
-				scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id);
+				scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id, db);
 				return;
 			}
 
@@ -34,7 +36,7 @@ export function registerVoiceHandler(
 			const response = await fetch(downloadUrl);
 			if (!response.ok) {
 				const reply = await ctx.reply('Voice transcription failed. Please try again or type your message.');
-				scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id);
+				scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id, db);
 				return;
 			}
 			const audioBuffer = Buffer.from(await response.arrayBuffer());
@@ -44,14 +46,14 @@ export function registerVoiceHandler(
 			transcribedText = result.text.trim();
 		} catch {
 			const reply = await ctx.reply('Voice transcription failed. Please try again or type your message.');
-			scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id);
+			scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id, db);
 			return;
 		}
 
 		// Empty transcription
 		if (!transcribedText) {
 			const reply = await ctx.reply('Could not understand the voice message.');
-			scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id);
+			scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id, db);
 			return;
 		}
 
@@ -59,10 +61,10 @@ export function registerVoiceHandler(
 		const result = await routeTextInput(transcribedText, { taskService, parser, dayTreeService });
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply);
-			scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id);
+			scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id, db);
 		} else {
 			// No reply (e.g., slash command -- unlikely from voice but handle gracefully)
-			scheduleCleanup(ctx, chatId, voiceMsgId, undefined);
+			scheduleCleanup(ctx, chatId, voiceMsgId, undefined, db);
 		}
 	});
 }
