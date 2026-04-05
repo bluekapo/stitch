@@ -4,6 +4,7 @@ import type { Bot } from 'grammy';
 import { setupTelegramBot } from './channels/telegram/index.js';
 import type { StitchContext } from './channels/telegram/types.js';
 import { type AppConfig, loadConfig } from './config.js';
+import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
 import { TaskService } from './core/task-service.js';
 import { createDb, type StitchDb } from './db/index.js';
 import { createLlmProvider, createSttProvider } from './providers/index.js';
@@ -47,6 +48,10 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	const taskService = new TaskService(db);
 	app.decorate('taskService', taskService);
 
+	// Recurrence scheduler
+	const scheduler = new RecurrenceScheduler(taskService, config.RECURRENCE_CRON_TIME);
+	app.decorate('scheduler', scheduler);
+
 	// Telegram bot
 	if (options.telegramBot) {
 		app.decorate('bot', options.telegramBot);
@@ -78,6 +83,16 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 				`STT provider unavailable: ${sttHealth.error}. App will still serve but STT calls will fail.`,
 			);
 		}
+
+		// Start recurrence scheduler and generate any missed tasks for today
+		scheduler.start();
+		app.log.info(`Recurrence scheduler started (cron: ${config.RECURRENCE_CRON_TIME})`);
+		scheduler.generateAll();
+	});
+
+	// Stop scheduler on app close
+	app.addHook('onClose', async () => {
+		scheduler.stop();
 	});
 
 	return app;

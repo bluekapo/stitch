@@ -2,6 +2,7 @@ import type { Bot } from 'grammy';
 import { buildApp } from './app.js';
 import type { StitchContext } from './channels/telegram/types.js';
 import { loadConfig } from './config.js';
+import type { RecurrenceScheduler } from './core/recurrence-scheduler.js';
 
 const config = loadConfig();
 const app = buildApp({ config });
@@ -11,6 +12,10 @@ const shutdown = async (signal: string) => {
 	const bot = (app as unknown as { bot?: Bot<StitchContext> }).bot;
 	if (bot) {
 		await bot.stop();
+	}
+	const scheduler = (app as unknown as { scheduler?: RecurrenceScheduler }).scheduler;
+	if (scheduler) {
+		scheduler.stop();
 	}
 	await app.close();
 	process.exit(0);
