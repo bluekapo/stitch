@@ -9,7 +9,13 @@ export class WhisperServerProvider implements SttProvider {
 
 	async transcribe(audio: Buffer, mimeType: string): Promise<TranscribeResult> {
 		// Pitfall 4: whisper-server uses filename extension for format detection
-		const ext = mimeType === 'audio/wav' ? 'wav' : 'audio';
+		const extMap: Record<string, string> = {
+			'audio/wav': 'wav',
+			'audio/ogg': 'ogg',
+			'audio/mpeg': 'mp3',
+			'audio/mp4': 'm4a',
+		};
+		const ext = extMap[mimeType] ?? 'audio';
 		// Copy Buffer into a plain ArrayBuffer for Blob compatibility (avoids TS SharedArrayBuffer issue)
 		const arrayBuffer = audio.buffer.slice(
 			audio.byteOffset,

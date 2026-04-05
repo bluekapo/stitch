@@ -66,7 +66,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	if (options.telegramBot) {
 		app.decorate('bot', options.telegramBot);
 	} else if (config.TELEGRAM_BOT_TOKEN) {
-		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, blueprintService, dailyPlanService });
+		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, blueprintService, dailyPlanService, sttProvider });
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);
 	}

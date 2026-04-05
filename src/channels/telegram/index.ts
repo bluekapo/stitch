@@ -5,11 +5,13 @@ import type { DailyPlanService } from '../../core/daily-plan-service.js';
 import { TaskParserService } from '../../core/task-parser.js';
 import type { TaskService } from '../../core/task-service.js';
 import type { LlmProvider } from '../../providers/llm.js';
+import type { SttProvider } from '../../providers/stt.js';
 import { createBot } from './bot.js';
 import { autoCleanup } from './cleanup.js';
 import { registerBlueprintHandlers } from './handlers/blueprint-handler.js';
 import { registerNlHandler } from './handlers/nl-handler.js';
 import { registerTaskHandlers } from './handlers/task-handlers.js';
+import { registerVoiceHandler } from './handlers/voice-handler.js';
 import { HubManager } from './hub.js';
 import { registerMenus } from './menus/index.js';
 import type { StitchContext } from './types.js';
@@ -26,10 +28,11 @@ export interface TelegramSetupOptions {
 	llmProvider: LlmProvider;
 	blueprintService?: BlueprintService;
 	dailyPlanService?: DailyPlanService;
+	sttProvider?: SttProvider;
 }
 
 export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {
-	const { config, taskService, llmProvider, blueprintService, dailyPlanService } = options;
+	const { config, taskService, llmProvider, blueprintService, dailyPlanService, sttProvider } = options;
 
 	const bot = createBot({
 		token: config.TELEGRAM_BOT_TOKEN,
@@ -61,8 +64,15 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		registerBlueprintHandlers(bot, blueprintService);
 	}
 
-	// NL handler: catch-all for unmatched text, parses via LLM (registered AFTER task handlers)
+	// Parser shared by voice and NL handlers
 	const parser = new TaskParserService(llmProvider);
+
+	// Voice handler: registered AFTER blueprint handlers, BEFORE NL catch-all
+	if (sttProvider) {
+		registerVoiceHandler(bot, sttProvider, taskService, parser, config.TELEGRAM_BOT_TOKEN);
+	}
+
+	// NL handler: catch-all for unmatched text, parses via LLM (registered AFTER task/voice handlers)
 	registerNlHandler(bot, parser, taskService);
 
 	// Auto-cleanup for text messages (catch-all, registered LAST per Pitfall 1 & 6)
