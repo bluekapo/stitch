@@ -3,7 +3,7 @@ import type { DayTreeService } from '../../../core/day-tree-service.js';
 import type { SttProvider } from '../../../providers/stt.js';
 import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
-import { CLEANUP_DELAY_MS } from '../cleanup.js';
+import { scheduleCleanup } from '../cleanup.js';
 import type { StitchContext } from '../types.js';
 import { routeTextInput } from './text-router.js';
 
@@ -65,26 +65,4 @@ export function registerVoiceHandler(
 			scheduleCleanup(ctx, chatId, voiceMsgId, undefined);
 		}
 	});
-}
-
-function scheduleCleanup(
-	ctx: StitchContext,
-	chatId: number,
-	voiceMsgId: number,
-	replyMsgId: number | undefined,
-): void {
-	setTimeout(async () => {
-		try {
-			await ctx.api.deleteMessage(chatId, voiceMsgId);
-		} catch {
-			// Message may already be deleted
-		}
-		if (replyMsgId !== undefined) {
-			try {
-				await ctx.api.deleteMessage(chatId, replyMsgId);
-			} catch {
-				// Reply may already be deleted
-			}
-		}
-	}, CLEANUP_DELAY_MS);
 }

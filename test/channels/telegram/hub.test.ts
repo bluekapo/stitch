@@ -3,7 +3,7 @@ import { HubManager } from '../../../src/channels/telegram/hub.js';
 import type { Menu } from '@grammyjs/menu';
 import type { StitchContext } from '../../../src/channels/telegram/types.js';
 
-function createMockApi() {
+function createMockApi(pinnedMessageId?: number) {
 	const calls: Array<{ method: string; args: unknown[] }> = [];
 	return {
 		calls,
@@ -40,6 +40,14 @@ function createMockApi() {
 					args: [_chatId, _messageId, _opts],
 				});
 				return true;
+			}),
+			getChat: vi.fn(async (_chatId: number) => {
+				calls.push({ method: 'getChat', args: [_chatId] });
+				const chat: Record<string, unknown> = { id: _chatId, type: 'private' };
+				if (pinnedMessageId !== undefined) {
+					chat.pinned_message = { message_id: pinnedMessageId, date: 0, chat: { id: _chatId, type: 'private' } };
+				}
+				return chat;
 			}),
 		},
 	};
@@ -129,6 +137,36 @@ describe('HubManager', () => {
 			reply_markup: fakeMenu,
 		});
 		expect(api.sendMessage).not.toHaveBeenCalled();
+	});
+
+	it('sendHub recovers ref from pinned message when ref is null (restart recovery)', async () => {
+		const { api } = createMockApi(99);
+		const hub = new HubManager(api as never);
+
+		// ref is null (simulates restart). Pinned message exists with ID 99.
+		await hub.sendHub(123, 'recovered', fakeMenu);
+
+		// Should have called getChat to discover pinned message
+		expect(api.getChat).toHaveBeenCalledWith(123);
+		// Should have edited the pinned message, not sent a new one
+		expect(api.editMessageText).toHaveBeenCalledWith(123, 99, 'recovered', {
+			parse_mode: 'HTML',
+			reply_markup: fakeMenu,
+		});
+		expect(api.sendMessage).not.toHaveBeenCalled();
+		// Ref should be set
+		expect(hub.getRef()).toEqual({ chatId: 123, messageId: 99 });
+	});
+
+	it('sendHub sends new message when no pinned message exists and ref is null', async () => {
+		const { api } = createMockApi(); // no pinned message
+		const hub = new HubManager(api as never);
+
+		await hub.sendHub(123, 'fresh', fakeMenu);
+
+		expect(api.getChat).toHaveBeenCalledWith(123);
+		expect(api.sendMessage).toHaveBeenCalled();
+		expect(api.pinChatMessage).toHaveBeenCalled();
 	});
 
 	it('sendHub recovery -- if edit fails (message deleted), sends new message and re-pins', async () => {

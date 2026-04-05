@@ -7,10 +7,9 @@ import type { TaskService } from '../../core/task-service.js';
 import type { LlmProvider } from '../../providers/llm.js';
 import type { SttProvider } from '../../providers/stt.js';
 import { createBot } from './bot.js';
-import { autoCleanup } from './cleanup.js';
-import { registerNlHandler } from './handlers/nl-handler.js';
-import { registerTaskHandlers } from './handlers/task-handlers.js';
+import { scheduleCleanup } from './cleanup.js';
 import { registerVoiceHandler } from './handlers/voice-handler.js';
+import { routeTextInput } from './handlers/text-router.js';
 import { HubManager } from './hub.js';
 import { registerMenus } from './menus/index.js';
 import type { StitchContext } from './types.js';
@@ -55,22 +54,25 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		await hub.sendHub(chatId, text, hubMenu, ctx);
 	});
 
-	// Text command handlers (registered AFTER /start, BEFORE autoCleanup per Pitfall 1)
-	registerTaskHandlers(bot, taskService);
-
-	// Parser shared by voice and NL handlers
 	const parser = new TaskParserService(llmProvider);
 
-	// Voice handler: registered AFTER task handlers, BEFORE NL catch-all
+	// Voice handler: transcribe → routeTextInput → cleanup
 	if (sttProvider) {
 		registerVoiceHandler(bot, sttProvider, taskService, parser, config.TELEGRAM_BOT_TOKEN, dayTreeService);
 	}
 
-	// NL handler: catch-all for unmatched text, parses via LLM (registered AFTER task/voice handlers)
-	registerNlHandler(bot, parser, taskService);
-
-	// Auto-cleanup for text messages (catch-all, registered LAST per Pitfall 1 & 6)
-	bot.on('message:text', autoCleanup);
+	// Unified text handler: routeTextInput handles all commands + NL fallback, with cleanup
+	bot.on('message:text', async (ctx) => {
+		const text = ctx.message.text;
+		if (text.startsWith('/')) return; // Let command handlers process
+		const chatId = ctx.chat.id;
+		const userMsgId = ctx.message.message_id;
+		const result = await routeTextInput(text, { taskService, parser, dayTreeService });
+		if (result.reply) {
+			const reply = await ctx.reply(result.reply, { parse_mode: 'HTML' });
+			scheduleCleanup(ctx, chatId, userMsgId, reply.message_id);
+		}
+	});
 
 	return { bot, hub };
 }

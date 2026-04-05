@@ -1,8 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { autoCleanup, CLEANUP_DELAY_MS } from '../../../src/channels/telegram/cleanup.js';
-import { createTestBot, fakeTextMessageUpdate } from '../../helpers/telegram.js';
+import { scheduleCleanup, CLEANUP_DELAY_MS } from '../../../src/channels/telegram/cleanup.js';
+import type { StitchContext } from '../../../src/channels/telegram/types.js';
 
-describe('autoCleanup middleware', () => {
+function createMockCtx() {
+	const calls: Array<{ method: string; args: unknown[] }> = [];
+	const ctx = {
+		api: {
+			deleteMessage: vi.fn(async (chatId: number, messageId: number) => {
+				calls.push({ method: 'deleteMessage', args: [chatId, messageId] });
+				return true;
+			}),
+		},
+	} as unknown as StitchContext;
+	return { ctx, calls };
+}
+
+describe('scheduleCleanup', () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 	});
@@ -11,37 +24,38 @@ describe('autoCleanup middleware', () => {
 		vi.useRealTimers();
 	});
 
-	it('sends "Got it." reply before deletion', async () => {
-		const { bot, outgoing } = createTestBot();
-		bot.on('message:text', autoCleanup);
-
-		await bot.init();
-		await bot.handleUpdate(fakeTextMessageUpdate('hello') as never);
-
-		const sendCalls = outgoing.filter((c) => c.method === 'sendMessage');
-		expect(sendCalls.length).toBeGreaterThanOrEqual(1);
-		const gotIt = sendCalls.find(
-			(c) => (c.payload as Record<string, unknown>).text === 'Got it.',
-		);
-		expect(gotIt).toBeDefined();
-	});
-
-	it('schedules deletion of user message and bot reply after CLEANUP_DELAY_MS', async () => {
-		const { bot, outgoing } = createTestBot();
-		bot.on('message:text', autoCleanup);
-
-		await bot.init();
-		await bot.handleUpdate(fakeTextMessageUpdate('hello') as never);
+	it('deletes user message and reply after CLEANUP_DELAY_MS', async () => {
+		const { ctx, calls } = createMockCtx();
+		scheduleCleanup(ctx, 100, 1, 2);
 
 		// No deletions yet
-		const deletesBefore = outgoing.filter((c) => c.method === 'deleteMessage');
-		expect(deletesBefore.length).toBe(0);
+		expect(calls.length).toBe(0);
 
-		// Advance timers
 		await vi.advanceTimersByTimeAsync(CLEANUP_DELAY_MS);
 
-		const deletesAfter = outgoing.filter((c) => c.method === 'deleteMessage');
-		expect(deletesAfter.length).toBe(2);
+		expect(calls.length).toBe(2);
+		expect(calls[0]).toEqual({ method: 'deleteMessage', args: [100, 1] });
+		expect(calls[1]).toEqual({ method: 'deleteMessage', args: [100, 2] });
+	});
+
+	it('deletes only user message when replyMsgId is undefined', async () => {
+		const { ctx, calls } = createMockCtx();
+		scheduleCleanup(ctx, 100, 1, undefined);
+
+		await vi.advanceTimersByTimeAsync(CLEANUP_DELAY_MS);
+
+		expect(calls.length).toBe(1);
+		expect(calls[0]).toEqual({ method: 'deleteMessage', args: [100, 1] });
+	});
+
+	it('does not throw when deleteMessage fails', async () => {
+		const { ctx } = createMockCtx();
+		(ctx.api.deleteMessage as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('forbidden'));
+
+		scheduleCleanup(ctx, 100, 1, 2);
+
+		// Should not throw
+		await vi.advanceTimersByTimeAsync(CLEANUP_DELAY_MS);
 	});
 
 	it('exports CLEANUP_DELAY_MS as 3000', () => {

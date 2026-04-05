@@ -18,6 +18,18 @@ export class HubManager {
 		menu: Menu<StitchContext>,
 		ctx?: StitchContext,
 	): Promise<void> {
+		// Recover hub ref from pinned message if lost (e.g., after restart)
+		if (!this.ref || this.ref.chatId !== chatId) {
+			try {
+				const chat = await this.api.getChat(chatId);
+				if ('pinned_message' in chat && chat.pinned_message) {
+					this.ref = { chatId, messageId: chat.pinned_message.message_id };
+				}
+			} catch {
+				// Can't recover — will send new hub
+			}
+		}
+
 		// If hub exists, try to edit in place (prevents duplicate hubs on repeated /start)
 		if (this.ref && this.ref.chatId === chatId) {
 			try {
