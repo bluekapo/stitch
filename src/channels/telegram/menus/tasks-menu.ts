@@ -3,9 +3,7 @@ import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { TaskService } from '../../../core/task-service.js';
 import type { TaskListItem } from '../../../types/task.js';
 import type { StitchContext } from '../types.js';
-import {
-	buildCurrentChunkTasksView,
-} from '../view-builders.js';
+import { buildCurrentChunkTasksView } from '../view-builders.js';
 import {
 	renderCurrentChunkTasksView,
 	renderHubView,
@@ -33,9 +31,7 @@ function taskButtonLabel(task: TaskListItem): string {
 }
 
 function sortTasks(list: TaskListItem[]): TaskListItem[] {
-	return [...list].sort(
-		(a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9),
-	);
+	return [...list].sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
 }
 
 /**
@@ -69,14 +65,11 @@ function buildTaskDetailMenu(
 			// Task deleted or invalid -- just show back button with payload
 			// so dimension check passes on click
 			range
-				.text(
-					{ text: '<< Back to Tasks', payload: String(taskId) },
-					async (ctx) => {
-						// biome-ignore lint: back() required for dynamic submenu nav
-						ctx.menu.back();
-						await safeEditMessageText(ctx, renderParentText());
-					},
-				)
+				.text({ text: '<< Back to Tasks', payload: String(taskId) }, async (ctx) => {
+					// biome-ignore lint: back() required for dynamic submenu nav
+					ctx.menu.back();
+					await safeEditMessageText(ctx, renderParentText());
+				})
 				.row();
 			return range;
 		}
@@ -84,14 +77,11 @@ function buildTaskDetailMenu(
 		// Completed or skipped: only back button
 		if (task.status === 'completed' || task.status === 'skipped') {
 			range
-				.text(
-					{ text: '<< Back to Tasks', payload: String(task.id) },
-					async (ctx) => {
-						// biome-ignore lint: back() required for dynamic submenu nav
-						ctx.menu.back();
-						await safeEditMessageText(ctx, renderParentText());
-					},
-				)
+				.text({ text: '<< Back to Tasks', payload: String(task.id) }, async (ctx) => {
+					// biome-ignore lint: back() required for dynamic submenu nav
+					ctx.menu.back();
+					await safeEditMessageText(ctx, renderParentText());
+				})
 				.row();
 			return range;
 		}
@@ -99,30 +89,24 @@ function buildTaskDetailMenu(
 		// Timer running: only Stop Timer + back
 		if (task.timerStartedAt) {
 			range
-				.text(
-					{ text: 'Stop Timer', payload: String(task.id) },
-					async (ctx) => {
-						try {
-							taskService.stopTimer(task.id);
-							const detail = taskService.getTaskDetail(task.id);
-							if (detail) {
-								await safeEditMessageText(ctx, renderTaskDetailView(detail));
-							}
-						} catch (err) {
-							await safeEditMessageText(ctx, String((err as Error).message));
+				.text({ text: 'Stop Timer', payload: String(task.id) }, async (ctx) => {
+					try {
+						taskService.stopTimer(task.id);
+						const detail = taskService.getTaskDetail(task.id);
+						if (detail) {
+							await safeEditMessageText(ctx, renderTaskDetailView(detail));
 						}
-					},
-				)
+					} catch (err) {
+						await safeEditMessageText(ctx, String((err as Error).message));
+					}
+				})
 				.row();
 			range
-				.text(
-					{ text: '<< Back to Tasks', payload: String(task.id) },
-					async (ctx) => {
-						// biome-ignore lint: back() required for dynamic submenu nav
-						ctx.menu.back();
-						await safeEditMessageText(ctx, renderParentText());
-					},
-				)
+				.text({ text: '<< Back to Tasks', payload: String(task.id) }, async (ctx) => {
+					// biome-ignore lint: back() required for dynamic submenu nav
+					ctx.menu.back();
+					await safeEditMessageText(ctx, renderParentText());
+				})
 				.row();
 			return range;
 		}
@@ -130,105 +114,87 @@ function buildTaskDetailMenu(
 		// Timer not running, status pending or active: Start Timer
 		if (task.status === 'pending' || task.status === 'active') {
 			range
-				.text(
-					{ text: 'Start Timer', payload: String(task.id) },
-					async (ctx) => {
-						try {
-							taskService.startTimer(task.id);
-							const detail = taskService.getTaskDetail(task.id);
-							if (detail) {
-								await safeEditMessageText(ctx, renderTaskDetailView(detail));
-							}
-						} catch (err) {
-							await safeEditMessageText(ctx, String((err as Error).message));
+				.text({ text: 'Start Timer', payload: String(task.id) }, async (ctx) => {
+					try {
+						taskService.startTimer(task.id);
+						const detail = taskService.getTaskDetail(task.id);
+						if (detail) {
+							await safeEditMessageText(ctx, renderTaskDetailView(detail));
 						}
-					},
-				)
+					} catch (err) {
+						await safeEditMessageText(ctx, String((err as Error).message));
+					}
+				})
 				.row();
 		}
 
 		// Not essential, not timer running, pending: Postpone + Complete
 		if (!task.isEssential && task.status === 'pending') {
 			range
-				.text(
-					{ text: 'Postpone', payload: String(task.id) },
-					async (ctx) => {
-						try {
-							taskService.postpone(task.id);
-							const detail = taskService.getTaskDetail(task.id);
-							if (detail) {
-								await safeEditMessageText(ctx, renderTaskDetailView(detail));
-							}
-						} catch (err) {
-							await safeEditMessageText(ctx, String((err as Error).message));
+				.text({ text: 'Postpone', payload: String(task.id) }, async (ctx) => {
+					try {
+						taskService.postpone(task.id);
+						const detail = taskService.getTaskDetail(task.id);
+						if (detail) {
+							await safeEditMessageText(ctx, renderTaskDetailView(detail));
 						}
-					},
-				)
-				.text(
-					{ text: 'Complete', payload: String(task.id) },
-					async (ctx) => {
-						try {
-							taskService.update(task.id, { status: 'completed' });
-							// biome-ignore lint: back() required for dynamic submenu nav
-							ctx.menu.back();
-							await safeEditMessageText(ctx, renderParentText());
-						} catch (err) {
-							await safeEditMessageText(ctx, String((err as Error).message));
-						}
-					},
-				)
+					} catch (err) {
+						await safeEditMessageText(ctx, String((err as Error).message));
+					}
+				})
+				.text({ text: 'Complete', payload: String(task.id) }, async (ctx) => {
+					try {
+						taskService.update(task.id, { status: 'completed' });
+						// biome-ignore lint: back() required for dynamic submenu nav
+						ctx.menu.back();
+						await safeEditMessageText(ctx, renderParentText());
+					} catch (err) {
+						await safeEditMessageText(ctx, String((err as Error).message));
+					}
+				})
 				.row();
 		}
 
 		// Essential, not timer running: Complete only
 		if (task.isEssential) {
 			range
-				.text(
-					{ text: 'Complete', payload: String(task.id) },
-					async (ctx) => {
-						try {
-							taskService.update(task.id, { status: 'completed' });
-							// biome-ignore lint: back() required for dynamic submenu nav
-							ctx.menu.back();
-							await safeEditMessageText(ctx, renderParentText());
-						} catch (err) {
-							await safeEditMessageText(ctx, String((err as Error).message));
-						}
-					},
-				)
+				.text({ text: 'Complete', payload: String(task.id) }, async (ctx) => {
+					try {
+						taskService.update(task.id, { status: 'completed' });
+						// biome-ignore lint: back() required for dynamic submenu nav
+						ctx.menu.back();
+						await safeEditMessageText(ctx, renderParentText());
+					} catch (err) {
+						await safeEditMessageText(ctx, String((err as Error).message));
+					}
+				})
 				.row();
 		}
 
 		// Not essential, not timer running: Delete
 		if (!task.isEssential) {
 			range
-				.text(
-					{ text: 'Delete', payload: String(task.id) },
-					async (ctx) => {
-						try {
-							taskService.delete(task.id);
-							// biome-ignore lint: back() required for dynamic submenu nav
-							ctx.menu.back();
-							await safeEditMessageText(ctx, renderParentText());
-						} catch (err) {
-							await safeEditMessageText(ctx, String((err as Error).message));
-						}
-					},
-				)
+				.text({ text: 'Delete', payload: String(task.id) }, async (ctx) => {
+					try {
+						taskService.delete(task.id);
+						// biome-ignore lint: back() required for dynamic submenu nav
+						ctx.menu.back();
+						await safeEditMessageText(ctx, renderParentText());
+					} catch (err) {
+						await safeEditMessageText(ctx, String((err as Error).message));
+					}
+				})
 				.row();
 		}
 
 		// Back button inside dynamic so it carries task ID payload
 		// (grammY dimension check needs ctx.match = task ID to render correctly)
 		range
-			.text(
-				{ text: '<< Back to Tasks', payload: String(task.id) },
-				async (ctx) => {
-					// biome-ignore lint: back() required for dynamic submenu nav
-					ctx.menu.back();
-					await safeEditMessageText(ctx, renderParentText());
-				},
-			)
+			.text({ text: '<< Back to Tasks', payload: String(task.id) }, async (ctx) => {
+				// biome-ignore lint: back() required for dynamic submenu nav
+				ctx.menu.back();
+				await safeEditMessageText(ctx, renderParentText());
+			})
 			.row();
 
 		return range;
@@ -269,58 +235,43 @@ export function createTasksMenu(
 } {
 	// Build task-detail menu instances. Each instance's back handler renders
 	// the appropriate parent view.
-	const taskDetailFromChunk = buildTaskDetailMenu(
-		'task-detail-from-chunk',
-		taskService,
-		() =>
-			renderCurrentChunkTasksView(
-				buildCurrentChunkTasksView(taskService, dailyPlanService, new Date()),
-			),
+	const taskDetailFromChunk = buildTaskDetailMenu('task-detail-from-chunk', taskService, () =>
+		renderCurrentChunkTasksView(
+			buildCurrentChunkTasksView(taskService, dailyPlanService, new Date()),
+		),
 	);
 
-	const taskDetailFromAll = buildTaskDetailMenu(
-		'task-detail-from-all',
-		taskService,
-		() => renderTasksView(taskService.list() as TaskListItem[]),
+	const taskDetailFromAll = buildTaskDetailMenu('task-detail-from-all', taskService, () =>
+		renderTasksView(taskService.list() as TaskListItem[]),
 	);
 
 	// Main scoped tasks menu (Screen 3).
 	const tasksMenu = new Menu<StitchContext>('tasks')
 		.dynamic((_ctx, range) => {
-			const view = buildCurrentChunkTasksView(
-				taskService,
-				dailyPlanService,
-				new Date(),
-			);
+			const view = buildCurrentChunkTasksView(taskService, dailyPlanService, new Date());
 			const tasks = view?.chunk?.tasks ?? [];
 			const sorted = sortTasks(tasks).slice(0, 20);
 
 			for (const task of sorted) {
 				range
-					.text(
-						{ text: taskButtonLabel(task), payload: String(task.id) },
-						async (ctx) => {
-							try {
-								const detail = taskService.getTaskDetail(Number(ctx.match));
-								if (detail) {
-									ctx.menu.nav('task-detail-from-chunk');
-									await safeEditMessageText(ctx, renderTaskDetailView(detail));
-								}
-							} catch (err) {
-								await safeEditMessageText(ctx, String((err as Error).message));
+					.text({ text: taskButtonLabel(task), payload: String(task.id) }, async (ctx) => {
+						try {
+							const detail = taskService.getTaskDetail(Number(ctx.match));
+							if (detail) {
+								ctx.menu.nav('task-detail-from-chunk');
+								await safeEditMessageText(ctx, renderTaskDetailView(detail));
 							}
-						},
-					)
+						} catch (err) {
+							await safeEditMessageText(ctx, String((err as Error).message));
+						}
+					})
 					.row();
 			}
 			return range;
 		})
 		.text('All Tasks', async (ctx) => {
 			ctx.menu.nav('all-tasks');
-			await safeEditMessageText(
-				ctx,
-				renderTasksView(taskService.list() as TaskListItem[]),
-			);
+			await safeEditMessageText(ctx, renderTasksView(taskService.list() as TaskListItem[]));
 		})
 		.text('Refresh', async (ctx) => {
 			// No nav -- re-render same menu. CLICK-TIME re-query (Pitfall 7).
@@ -351,30 +302,24 @@ export function createTasksMenu(
 			const all = sortTasks(taskService.list() as TaskListItem[]).slice(0, 20);
 			for (const task of all) {
 				range
-					.text(
-						{ text: taskButtonLabel(task), payload: String(task.id) },
-						async (ctx) => {
-							try {
-								const detail = taskService.getTaskDetail(Number(ctx.match));
-								if (detail) {
-									ctx.menu.nav('task-detail-from-all');
-									await safeEditMessageText(ctx, renderTaskDetailView(detail));
-								}
-							} catch (err) {
-								await safeEditMessageText(ctx, String((err as Error).message));
+					.text({ text: taskButtonLabel(task), payload: String(task.id) }, async (ctx) => {
+						try {
+							const detail = taskService.getTaskDetail(Number(ctx.match));
+							if (detail) {
+								ctx.menu.nav('task-detail-from-all');
+								await safeEditMessageText(ctx, renderTaskDetailView(detail));
 							}
-						},
-					)
+						} catch (err) {
+							await safeEditMessageText(ctx, String((err as Error).message));
+						}
+					})
 					.row();
 			}
 			return range;
 		})
 		.text('Refresh', async (ctx) => {
 			// No nav -- re-render same menu. CLICK-TIME re-query.
-			await safeEditMessageText(
-				ctx,
-				renderTasksView(taskService.list() as TaskListItem[]),
-			);
+			await safeEditMessageText(ctx, renderTasksView(taskService.list() as TaskListItem[]));
 		})
 		.row()
 		.text('<< Back to Tasks', async (ctx) => {

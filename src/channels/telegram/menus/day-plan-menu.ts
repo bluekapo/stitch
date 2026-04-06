@@ -2,16 +2,13 @@ import { Menu } from '@grammyjs/menu';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../../core/day-tree-service.js';
 import type { StitchContext } from '../types.js';
+import { buildCurrentChunkView, buildFullDayPlanView } from '../view-builders.js';
 import {
 	renderCurrentChunkView,
 	renderDayPlanView,
 	renderHubView,
 	renderTreeView,
 } from '../views.js';
-import {
-	buildCurrentChunkView,
-	buildFullDayPlanView,
-} from '../view-builders.js';
 import { safeEditMessageText } from './helpers.js';
 
 /**
