@@ -22,7 +22,7 @@ export function registerMenus(
 	dayTreeService?: DayTreeService,
 ): RegisteredMenus {
 	const hubMenu = createHubMenu(taskService, dailyPlanService);
-	const dayPlanMenu = createDayPlanMenu(dayTreeService);
+	const dayPlanMenu = createDayPlanMenu(dayTreeService, dailyPlanService);
 	const { tasksMenu, taskDetailMenu } = createTasksMenu(taskService);
 
 	// Register submenus on parent before bot.use (Pitfall 6)

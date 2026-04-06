@@ -7,7 +7,17 @@ import { registerMenus } from '../../../src/channels/telegram/menus/index.js';
 import { createTestBot } from '../../helpers/telegram.js';
 import { createTestDb } from '../../helpers/db.js';
 import { TaskService } from '../../../src/core/task-service.js';
-import { renderDayPlanView, renderHubView, renderTasksView } from '../../../src/channels/telegram/views.js';
+import {
+	buildCurrentChunkTasksView,
+	buildCurrentChunkView,
+	buildFullDayPlanView,
+} from '../../../src/channels/telegram/view-builders.js';
+import {
+	renderCurrentChunkTasksView,
+	renderCurrentChunkView,
+	renderDayPlanView,
+	renderHubView,
+} from '../../../src/channels/telegram/views.js';
 
 function makeTaskService() {
 	const db = createTestDb();
@@ -48,8 +58,8 @@ describe('Menu factories', () => {
 		expect(menu).toBeInstanceOf(Menu);
 	});
 
-	it('createDayPlanMenu accepts optional dayTreeService', () => {
-		const menu = createDayPlanMenu(undefined);
+	it('createDayPlanMenu accepts optional dayTreeService and dailyPlanService', () => {
+		const menu = createDayPlanMenu(undefined, undefined);
 		expect(menu).toBeInstanceOf(Menu);
 	});
 
@@ -71,7 +81,7 @@ describe('registerMenus', () => {
 		expect(menus.taskDetailMenu).toBeInstanceOf(Menu);
 	});
 
-	it('Day Plan button triggers editMessageText with day plan content', async () => {
+	it('Day Plan button triggers editMessageText with focused chunk view content', async () => {
 		const { bot, outgoing } = createTestBot();
 		const { hubMenu } = registerMenus(bot, makeTaskService());
 
@@ -83,15 +93,16 @@ describe('registerMenus', () => {
 		// Fire the button press through the bot
 		await bot.handleUpdate(callbackQueryUpdate(dayPlanBtn.callback_data) as never);
 
-		// Assert editMessageText was called with the day plan view content
+		// Assert editMessageText was called with the focused day plan view content
+		// (no dailyPlanService -> builder returns undefined -> Case D fallback)
 		const editCalls = outgoing.filter((c) => c.method === 'editMessageText');
 		expect(editCalls.length).toBeGreaterThanOrEqual(1);
 		const editPayload = editCalls[editCalls.length - 1].payload as Record<string, unknown>;
-		expect(editPayload.text).toBe(renderDayPlanView());
+		expect(editPayload.text).toBe(renderCurrentChunkView(buildCurrentChunkView(undefined)));
 		expect(editPayload.parse_mode).toBe('HTML');
 	});
 
-	it('Tasks button triggers editMessageText with tasks content', async () => {
+	it('Tasks button triggers editMessageText with scoped current-chunk tasks view content', async () => {
 		const { bot, outgoing } = createTestBot();
 		const taskService = makeTaskService();
 		const { hubMenu } = registerMenus(bot, taskService);
@@ -104,11 +115,14 @@ describe('registerMenus', () => {
 		// Fire the button press through the bot
 		await bot.handleUpdate(callbackQueryUpdate(tasksBtn.callback_data) as never);
 
-		// Assert editMessageText was called with the tasks view content
+		// Assert editMessageText was called with the scoped current-chunk tasks view
+		// (no dailyPlanService -> builder returns undefined -> Case D fallback)
 		const editCalls = outgoing.filter((c) => c.method === 'editMessageText');
 		expect(editCalls.length).toBeGreaterThanOrEqual(1);
 		const editPayload = editCalls[editCalls.length - 1].payload as Record<string, unknown>;
-		expect(editPayload.text).toBe(renderTasksView(taskService.list()));
+		expect(editPayload.text).toBe(
+			renderCurrentChunkTasksView(buildCurrentChunkTasksView(taskService, undefined)),
+		);
 		expect(editPayload.parse_mode).toBe('HTML');
 	});
 
@@ -116,9 +130,9 @@ describe('registerMenus', () => {
 		const { bot, outgoing } = createTestBot();
 		const { dayPlanMenu } = registerMenus(bot, makeTaskService());
 
-		// Render the day-plan submenu to get the callback_data for "View Day Tree" (row 0, col 0)
+		// Render the day-plan submenu to get the callback_data for "View Day Tree" (row 0, col 1)
 		const rendered = await dayPlanMenu.render(renderCtx);
-		const treeBtn = rendered[0][0] as { callback_data: string; text: string };
+		const treeBtn = rendered[0][1] as { callback_data: string; text: string };
 		expect(treeBtn.text).toBe('View Day Tree');
 
 		// Fire the button press
@@ -133,9 +147,12 @@ describe('registerMenus', () => {
 		const { bot, outgoing } = createTestBot();
 		const { dayPlanMenu } = registerMenus(bot, makeTaskService());
 
-		// Render the day-plan submenu to get the callback_data for "<< Back to Hub" (row 1, col 0)
+		// New Day Plan layout:
+		//   row 0: [Full Day Plan] [View Day Tree]
+		//   row 1: [Refresh]
+		//   row 2: [<< Back to Hub]
 		const rendered = await dayPlanMenu.render(renderCtx);
-		const backBtn = rendered[1][0] as { callback_data: string; text: string };
+		const backBtn = rendered[2][0] as { callback_data: string; text: string };
 		expect(backBtn.text).toBe('<< Back to Hub');
 
 		// Fire the button press through the bot
@@ -148,5 +165,94 @@ describe('registerMenus', () => {
 		const expectedHubContent = renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null });
 		expect(editPayload.text).toBe(expectedHubContent);
 		expect(editPayload.parse_mode).toBe('HTML');
+	});
+});
+
+describe('Day Plan menu structure (Phase 08.3)', () => {
+	it('has Full Day Plan, View Day Tree, Refresh, and << Back to Hub buttons', async () => {
+		const { bot } = createTestBot();
+		const { dayPlanMenu } = registerMenus(bot, makeTaskService());
+
+		const rendered = await dayPlanMenu.render(renderCtx);
+		// row 0: Full Day Plan | View Day Tree
+		// row 1: Refresh
+		// row 2: << Back to Hub
+		expect((rendered[0][0] as { text: string }).text).toBe('Full Day Plan');
+		expect((rendered[0][1] as { text: string }).text).toBe('View Day Tree');
+		expect((rendered[1][0] as { text: string }).text).toBe('Refresh');
+		expect((rendered[2][0] as { text: string }).text).toBe('<< Back to Hub');
+	});
+
+	it('Full Day Plan button navigates to full-day-plan submenu and renders full view', async () => {
+		const { bot, outgoing } = createTestBot();
+		const { dayPlanMenu } = registerMenus(bot, makeTaskService());
+
+		const rendered = await dayPlanMenu.render(renderCtx);
+		const fullBtn = rendered[0][0] as { callback_data: string; text: string };
+		expect(fullBtn.text).toBe('Full Day Plan');
+
+		await bot.handleUpdate(callbackQueryUpdate(fullBtn.callback_data) as never);
+
+		const editCalls = outgoing.filter((c) => c.method === 'editMessageText');
+		expect(editCalls.length).toBeGreaterThanOrEqual(1);
+		const editPayload = editCalls[editCalls.length - 1].payload as Record<string, unknown>;
+		// Builder returns undefined (no dailyPlanService) -> Case D fallback.
+		// renderDayPlanView(undefined, 'full') falls through the undefined branch
+		// which does NOT show the "Full Day Plan" prefix (plan is undefined).
+		expect(editPayload.text).toBe(renderDayPlanView(buildFullDayPlanView(undefined), 'full'));
+		expect(editPayload.parse_mode).toBe('HTML');
+	});
+
+	it('Refresh button re-renders focused current chunk view without nav', async () => {
+		const { bot, outgoing } = createTestBot();
+		const { dayPlanMenu } = registerMenus(bot, makeTaskService());
+
+		const rendered = await dayPlanMenu.render(renderCtx);
+		const refreshBtn = rendered[1][0] as { callback_data: string; text: string };
+		expect(refreshBtn.text).toBe('Refresh');
+
+		await bot.handleUpdate(callbackQueryUpdate(refreshBtn.callback_data) as never);
+
+		const editCalls = outgoing.filter((c) => c.method === 'editMessageText');
+		expect(editCalls.length).toBeGreaterThanOrEqual(1);
+		const editPayload = editCalls[editCalls.length - 1].payload as Record<string, unknown>;
+		expect(editPayload.text).toBe(renderCurrentChunkView(buildCurrentChunkView(undefined)));
+	});
+});
+
+describe('Full Day Plan submenu (Phase 08.3)', () => {
+	it('has Refresh and << Back to Day Plan buttons', async () => {
+		const { bot } = createTestBot();
+		registerMenus(bot, makeTaskService());
+
+		// Access the submenu via the dayPlanMenu's registered children.
+		// The full-day-plan submenu is created inside createDayPlanMenu and
+		// registered there. Construct a fresh day-plan menu to inspect it.
+		const dayPlanMenu = createDayPlanMenu(undefined, undefined);
+		// Grab the registered full-day-plan submenu by id via its index.
+		// @grammyjs/menu exposes registered children via the `index` property.
+		// biome-ignore lint: inspecting internal registry for test assertion
+		const index = (dayPlanMenu as unknown as { index: Map<string, Menu<never>> }).index;
+		const fullDayPlanMenu = index.get('full-day-plan');
+		expect(fullDayPlanMenu).toBeInstanceOf(Menu);
+
+		const rendered = await (fullDayPlanMenu as Menu<never>).render(renderCtx as never);
+		// row 0: Refresh
+		// row 1: << Back to Day Plan
+		expect((rendered[0][0] as { text: string }).text).toBe('Refresh');
+		expect((rendered[1][0] as { text: string }).text).toBe('<< Back to Day Plan');
+	});
+});
+
+describe('Day Tree View submenu back button (Phase 08.3 D-21)', () => {
+	it('back button label is "<< Back to Day Plan" (not "<< Back to Hub")', async () => {
+		const dayPlanMenu = createDayPlanMenu(undefined, undefined);
+		// biome-ignore lint: inspecting internal registry for test assertion
+		const index = (dayPlanMenu as unknown as { index: Map<string, Menu<never>> }).index;
+		const treeViewMenu = index.get('day-tree-view');
+		expect(treeViewMenu).toBeInstanceOf(Menu);
+
+		const rendered = await (treeViewMenu as Menu<never>).render(renderCtx as never);
+		expect((rendered[0][0] as { text: string }).text).toBe('<< Back to Day Plan');
 	});
 });
