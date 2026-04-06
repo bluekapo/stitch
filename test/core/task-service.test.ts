@@ -1,6 +1,9 @@
+import type Database from 'better-sqlite3';
+import { eq } from 'drizzle-orm';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb } from '../helpers/db.js';
 import { TaskService } from '../../src/core/task-service.js';
+import { tasks } from '../../src/db/schema.js';
 import { createTaskSchema } from '../../src/types/task.js';
 import type { StitchDb } from '../../src/db/index.js';
 
@@ -334,6 +337,87 @@ describe('TaskService', () => {
 			service.create({ name: 'Task 1', isEssential: false });
 			const orphans = service.checkOrphanedTimers();
 			expect(orphans).toEqual([]);
+		});
+	});
+
+	describe('listForChunk (Phase 08.3)', () => {
+		// Helper: seed plan_chunks rows so tasks.chunk_id FK references resolve.
+		// foreign_keys is ON in createTestDb, so the parent rows must exist.
+		function seedPlanChunks(chunkIds: number[]) {
+			// biome-ignore lint/suspicious/noExplicitAny: direct sqlite access for FK seed setup
+			const sqlite = (db as any).$client as Database.Database;
+			sqlite.exec(`INSERT INTO daily_plans (id, date) VALUES (1, '2026-04-06');`);
+			for (const id of chunkIds) {
+				sqlite
+					.prepare(
+						`INSERT INTO plan_chunks (id, plan_id, branch_name, label, start_time, end_time)
+						 VALUES (?, 1, 'TestBranch', 'Test chunk', '08:00', '10:00')`,
+					)
+					.run(id);
+			}
+		}
+
+		it('returns only tasks with matching chunk_id', () => {
+			seedPlanChunks([5, 7]);
+			const t1 = service.create({ name: 'In chunk 5 - A', isEssential: false });
+			const t2 = service.create({ name: 'In chunk 5 - B', isEssential: false });
+			const t3 = service.create({ name: 'In chunk 7', isEssential: false });
+			db.update(tasks).set({ chunkId: 5 }).where(eq(tasks.id, t1.id)).run();
+			db.update(tasks).set({ chunkId: 5 }).where(eq(tasks.id, t2.id)).run();
+			db.update(tasks).set({ chunkId: 7 }).where(eq(tasks.id, t3.id)).run();
+
+			const inChunk5 = service.listForChunk(5);
+			expect(inChunk5).toHaveLength(2);
+			expect(inChunk5.map((t) => t.name).sort()).toEqual([
+				'In chunk 5 - A',
+				'In chunk 5 - B',
+			]);
+		});
+
+		it('returns empty array when no tasks match the given chunk_id', () => {
+			seedPlanChunks([1]);
+			const t1 = service.create({ name: 'In chunk 1', isEssential: false });
+			db.update(tasks).set({ chunkId: 1 }).where(eq(tasks.id, t1.id)).run();
+
+			expect(service.listForChunk(999)).toEqual([]);
+		});
+
+		it('ignores tasks with chunk_id = NULL (only attached tasks come back)', () => {
+			seedPlanChunks([3]);
+			const attached = service.create({ name: 'Attached', isEssential: false });
+			service.create({ name: 'Unattached A', isEssential: false });
+			service.create({ name: 'Unattached B', isEssential: false });
+			db.update(tasks).set({ chunkId: 3 }).where(eq(tasks.id, attached.id)).run();
+
+			const result = service.listForChunk(3);
+			expect(result).toHaveLength(1);
+			expect(result[0].name).toBe('Attached');
+		});
+
+		it('returns the TaskListItem shape (id, name, status, isEssential, timerStartedAt)', () => {
+			seedPlanChunks([2]);
+			const created = service.create({ name: 'Locked task', isEssential: true });
+			db.update(tasks).set({ chunkId: 2 }).where(eq(tasks.id, created.id)).run();
+
+			const result = service.listForChunk(2);
+			expect(result).toHaveLength(1);
+			expect(result[0]).toMatchObject({
+				id: created.id,
+				name: 'Locked task',
+				status: 'pending',
+				isEssential: true,
+				timerStartedAt: null,
+			});
+		});
+
+		it('list() (All Tasks) still returns ALL tasks regardless of chunk_id (unchanged behavior)', () => {
+			seedPlanChunks([1]);
+			const attached = service.create({ name: 'Attached', isEssential: false });
+			service.create({ name: 'Unattached A', isEssential: false });
+			service.create({ name: 'Unattached B', isEssential: false });
+			db.update(tasks).set({ chunkId: 1 }).where(eq(tasks.id, attached.id)).run();
+
+			expect(service.list()).toHaveLength(3);
 		});
 	});
 });
