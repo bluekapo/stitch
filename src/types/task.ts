@@ -8,6 +8,11 @@ export const createTaskSchema = z.object({
 	recurrenceDay: z.number().int().min(0).max(6).optional(),
 	deadline: z.string().optional(),
 	sourceTaskId: z.number().int().positive().optional(),
+	// Phase 08.3: optional chunk attachment populated by callers (text-router /
+	// voice-handler use the D-16 fallback; DailyPlanService.generatePlan also
+	// updates tasks.chunk_id post-insert via direct UPDATE, not via create()).
+	chunkId: z.number().int().positive().nullable().optional(),
+	branchName: z.string().nullable().optional(),
 });
 
 export const updateTaskSchema = z.object({

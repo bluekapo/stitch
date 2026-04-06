@@ -1,7 +1,7 @@
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, sql } from 'drizzle-orm';
 import { format } from 'date-fns';
 import type { StitchDb } from '../db/index.js';
-import { dailyPlans, planChunks, chunkTasks } from '../db/schema.js';
+import { dailyPlans, planChunks, chunkTasks, tasks } from '../db/schema.js';
 import type { DayTreeService } from './day-tree-service.js';
 import type { TaskService } from './task-service.js';
 import type { LlmProvider } from '../providers/llm.js';
@@ -113,7 +113,10 @@ export class DailyPlanService {
 				.returning()
 				.all();
 
-			// Insert chunk tasks
+			// Insert chunk tasks AND dual-write tasks.chunk_id + tasks.branch_name
+			// (Phase 08.3 D-14 invariant: chunk_tasks rows and tasks.chunkId stay
+			// in lockstep so the scoped Tasks view -- WHERE tasks.chunk_id = ? --
+			// reflects the same set as the chunk_tasks join.)
 			for (let j = 0; j < validChunkTasks.length; j++) {
 				const task = validChunkTasks[j];
 				this.db.insert(chunkTasks)
@@ -126,6 +129,21 @@ export class DailyPlanService {
 						status: 'pending',
 					})
 					.run();
+
+				// Dual-write tasks.chunk_id + tasks.branch_name. Skip taskId<=0
+				// (Phase 07 decision: taskId=0 maps to null for fixed blueprint
+				// blocks; validTaskIds filter above already drops these, but the
+				// guard is belt-and-suspenders against future regressions).
+				if (task.taskId && task.taskId > 0) {
+					this.db.update(tasks)
+						.set({
+							chunkId: insertedChunk.id,
+							branchName: chunk.branchName,
+							updatedAt: sql`(datetime('now'))`,
+						})
+						.where(eq(tasks.id, task.taskId))
+						.run();
+				}
 			}
 
 			insertedChunks.push(insertedChunk as PlanChunk);

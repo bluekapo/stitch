@@ -17,6 +17,10 @@ export class TaskService {
 				recurrenceDay: input.recurrenceDay,
 				deadline: input.deadline,
 				sourceTaskId: input.sourceTaskId,
+				// Phase 08.3: chunk attachment (D-16 fallback applied by callers).
+				// Defaults to null when omitted, preserving existing test expectations.
+				chunkId: input.chunkId ?? null,
+				branchName: input.branchName ?? null,
 			})
 			.returning({ id: tasks.id, name: tasks.name })
 			.all();
