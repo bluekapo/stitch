@@ -85,10 +85,7 @@ describe('getCurrentChunk', () => {
 });
 
 describe('getNextChunkStartTime', () => {
-	const chunks: PlanChunkWithTasks[] = [
-		mkChunk(1, '08:00', '10:00'),
-		mkChunk(2, '14:00', '16:00'),
-	];
+	const chunks: PlanChunkWithTasks[] = [mkChunk(1, '08:00', '10:00'), mkChunk(2, '14:00', '16:00')];
 
 	it('returns next upcoming start when inside a gap', () => {
 		const now = new Date();

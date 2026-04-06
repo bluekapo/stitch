@@ -27,9 +27,7 @@ describe('safeEditMessageText', () => {
 
 	it("swallows 'message is not modified' error and answers the callback query", async () => {
 		const ctx = mkCtx({
-			editMessageText: vi
-				.fn()
-				.mockRejectedValue(new Error('Bad Request: message is not modified')),
+			editMessageText: vi.fn().mockRejectedValue(new Error('Bad Request: message is not modified')),
 			answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
 		} as Partial<StitchContext>);
 
@@ -39,9 +37,7 @@ describe('safeEditMessageText', () => {
 
 	it('swallows answerCallbackQuery errors silently on the not-modified path', async () => {
 		const ctx = mkCtx({
-			editMessageText: vi
-				.fn()
-				.mockRejectedValue(new Error('Bad Request: message is not modified')),
+			editMessageText: vi.fn().mockRejectedValue(new Error('Bad Request: message is not modified')),
 			answerCallbackQuery: vi.fn().mockRejectedValue(new Error('answer failed')),
 		} as Partial<StitchContext>);
 
