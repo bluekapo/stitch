@@ -47,6 +47,9 @@ export class DailyPlanService {
 	}
 
 	async generatePlan(date: string): Promise<DailyPlan & { chunks: PlanChunk[] }> {
+		// =====================================================================
+		// PHASE 1: Read context (sync, OUTSIDE transaction)
+		// =====================================================================
 		const treeRow = this.dayTreeService.getTreeRow();
 		if (!treeRow) {
 			throw new Error('No day tree found.');
@@ -61,6 +64,17 @@ export class DailyPlanService {
 
 		const { system, user } = this.buildPlanPrompt(tree, pendingTasks, date);
 
+		// =====================================================================
+		// PHASE 2: LLM call (async, OUTSIDE transaction — Pitfall 4)
+		//
+		// Drizzle better-sqlite3 transactions are SYNC ONLY. The SQLite
+		// connection is busy-locked synchronously inside db.transaction(fn).
+		// Awaiting an async call inside the callback breaks the lock and
+		// produces undefined behavior. Therefore the LLM call MUST resolve
+		// BEFORE we enter the transaction. This also gives us D-32 atomicity
+		// for free: if the LLM call rejects, the transaction never opens, and
+		// no DB state changes (the user's old chunkId attachments survive).
+		// =====================================================================
 		const result = await this.llmProvider.complete({
 			messages: [
 				{ role: 'system', content: system },
@@ -73,83 +87,116 @@ export class DailyPlanService {
 			thinking: false,
 		});
 
-		// Build set of valid task IDs from pending tasks
+		// Build set of valid task IDs from pending tasks (hallucination defense
+		// — Phase 07 decision: drop chunks the LLM invented for non-pending tasks)
 		const validTaskIds = new Set(pendingTasks.map(t => t.id));
 
-		// Insert the daily plan with dayTreeId FK
-		const [plan] = this.db.insert(dailyPlans)
-			.values({
-				date,
-				dayTreeId,
-				blueprintId: null,
-				status: 'active',
-				llmReasoning: result.reasoning,
-			})
-			.returning()
-			.all();
+		// =====================================================================
+		// PHASE 3: All DB writes (sync, INSIDE db.transaction)
+		//
+		// The transaction wraps the D-32 reset, the dailyPlans insert, and the
+		// chunk/task insert loop. If ANY statement throws (FK violation, NOT
+		// NULL constraint, etc.), the entire sequence rolls back and the user's
+		// chunkId attachments survive intact.
+		//
+		// NOTE: NO `await` keyword may appear inside this callback. Drizzle's
+		// better-sqlite3 driver requires synchronous statements. Adding `await`
+		// here would silently break the transaction (Pitfall 4).
+		// =====================================================================
+		return this.db.transaction(() => {
+			// 3a. D-32 reset: clear stale chunkId/branchName for all pending tasks.
+			// The new plan will reattach the ones the LLM included; the rest end
+			// up with chunkId=null and branchName=null (test C in Task 1).
+			//
+			// We reset by IDs from pendingTasks (not a blanket UPDATE on all
+			// tasks) to avoid touching completed/done tasks whose chunkId is
+			// historical context for past chunks.
+			for (const t of pendingTasks) {
+				this.db.update(tasks)
+					.set({
+						chunkId: null,
+						branchName: null,
+						updatedAt: sql`(datetime('now'))`,
+					})
+					.where(eq(tasks.id, t.id))
+					.run();
+			}
 
-		// Insert chunks and their tasks
-		const insertedChunks: PlanChunk[] = [];
-		for (let i = 0; i < result.chunks.length; i++) {
-			const chunk = result.chunks[i];
-
-			// Filter tasks: keep only those with valid taskIds (hallucination defense)
-			const validChunkTasks = chunk.tasks.filter(
-				t => validTaskIds.has(t.taskId),
-			);
-
-			// Insert the plan chunk
-			const [insertedChunk] = this.db.insert(planChunks)
+			// 3b. Insert the daily plan with dayTreeId FK
+			const [plan] = this.db.insert(dailyPlans)
 				.values({
-					planId: plan.id,
-					branchName: chunk.branchName,
-					label: chunk.label,
-					startTime: chunk.startTime,
-					endTime: chunk.endTime,
-					isTaskSlot: chunk.isTaskSlot,
-					sortOrder: i,
-					status: 'pending',
+					date,
+					dayTreeId,
+					blueprintId: null,
+					status: 'active',
+					llmReasoning: result.reasoning,
 				})
 				.returning()
 				.all();
 
-			// Insert chunk tasks AND dual-write tasks.chunk_id + tasks.branch_name
-			// (Phase 08.3 D-14 invariant: chunk_tasks rows and tasks.chunkId stay
-			// in lockstep so the scoped Tasks view -- WHERE tasks.chunk_id = ? --
-			// reflects the same set as the chunk_tasks join.)
-			for (let j = 0; j < validChunkTasks.length; j++) {
-				const task = validChunkTasks[j];
-				this.db.insert(chunkTasks)
+			// 3c. Insert chunks and their tasks (and dual-write tasks.chunk_id)
+			const insertedChunks: PlanChunk[] = [];
+			for (let i = 0; i < result.chunks.length; i++) {
+				const chunk = result.chunks[i];
+
+				// Filter tasks: keep only those with valid taskIds (hallucination defense)
+				const validChunkTasks = chunk.tasks.filter(
+					t => validTaskIds.has(t.taskId),
+				);
+
+				// Insert the plan chunk
+				const [insertedChunk] = this.db.insert(planChunks)
 					.values({
-						chunkId: insertedChunk.id,
-						taskId: task.taskId,
-						label: task.label,
-						isLocked: task.isLocked,
-						sortOrder: j,
+						planId: plan.id,
+						branchName: chunk.branchName,
+						label: chunk.label,
+						startTime: chunk.startTime,
+						endTime: chunk.endTime,
+						isTaskSlot: chunk.isTaskSlot,
+						sortOrder: i,
 						status: 'pending',
 					})
-					.run();
+					.returning()
+					.all();
 
-				// Dual-write tasks.chunk_id + tasks.branch_name. Skip taskId<=0
-				// (Phase 07 decision: taskId=0 maps to null for fixed blueprint
-				// blocks; validTaskIds filter above already drops these, but the
-				// guard is belt-and-suspenders against future regressions).
-				if (task.taskId && task.taskId > 0) {
-					this.db.update(tasks)
-						.set({
+				// Insert chunk tasks AND dual-write tasks.chunk_id + tasks.branch_name
+				// (Phase 08.3 D-14 invariant: chunk_tasks rows and tasks.chunkId stay
+				// in lockstep so the scoped Tasks view -- WHERE tasks.chunk_id = ? --
+				// reflects the same set as the chunk_tasks join.)
+				for (let j = 0; j < validChunkTasks.length; j++) {
+					const task = validChunkTasks[j];
+					this.db.insert(chunkTasks)
+						.values({
 							chunkId: insertedChunk.id,
-							branchName: chunk.branchName,
-							updatedAt: sql`(datetime('now'))`,
+							taskId: task.taskId,
+							label: task.label,
+							isLocked: task.isLocked,
+							sortOrder: j,
+							status: 'pending',
 						})
-						.where(eq(tasks.id, task.taskId))
 						.run();
+
+					// Dual-write tasks.chunk_id + tasks.branch_name. Skip taskId<=0
+					// (Phase 07 decision: taskId=0 maps to null for fixed blueprint
+					// blocks; validTaskIds filter above already drops these, but the
+					// guard is belt-and-suspenders against future regressions).
+					if (task.taskId && task.taskId > 0) {
+						this.db.update(tasks)
+							.set({
+								chunkId: insertedChunk.id,
+								branchName: chunk.branchName,
+								updatedAt: sql`(datetime('now'))`,
+							})
+							.where(eq(tasks.id, task.taskId))
+							.run();
+					}
 				}
+
+				insertedChunks.push(insertedChunk as PlanChunk);
 			}
 
-			insertedChunks.push(insertedChunk as PlanChunk);
-		}
-
-		return { ...(plan as DailyPlan), chunks: insertedChunks };
+			return { ...(plan as DailyPlan), chunks: insertedChunks };
+		});
 	}
 
 	async ensureTodayPlan(): Promise<DailyPlan | undefined> {
