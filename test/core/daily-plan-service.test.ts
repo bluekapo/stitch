@@ -395,4 +395,178 @@ describe('DailyPlanService', () => {
 			expect(t1Row?.chunkId).toBe(result.chunks[0].id);
 		});
 	});
+
+	it('D-32: rolls back tasks.chunkId attachment when LLM fails mid-regenerate', async () => {
+		// Step 1: Successfully generate plan A so tasks have a non-null chunkId
+		const t1 = taskService.create({ name: 'Exercise' });
+		const t2 = taskService.create({ name: 'Code review' });
+
+		llm.setFixture('chunk_plan', {
+			chunks: [
+				{
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [
+						{ taskId: t1.id, label: 'Exercise', isLocked: false },
+						{ taskId: t2.id, label: 'Code review', isLocked: false },
+					],
+				},
+			],
+			reasoning: 'Plan A baseline.',
+		});
+
+		await planService.generatePlan('2026-04-06');
+
+		// Capture pre-regenerate state — both tasks should be attached
+		const t1Before = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
+		const t2Before = db.select().from(tasks).where(eq(tasks.id, t2.id)).get();
+		expect(t1Before!.chunkId).not.toBeNull();
+		expect(t2Before!.chunkId).not.toBeNull();
+		const t1OldChunkId = t1Before!.chunkId;
+		const t2OldChunkId = t2Before!.chunkId;
+		const t1OldBranchName = t1Before!.branchName;
+		const t2OldBranchName = t2Before!.branchName;
+
+		// Step 2: Inject LLM failure for the regenerate call by replacing the
+		// provider with a fresh mock that has NO fixture registered. The mock
+		// throws "No mock fixture registered for schema: chunk_plan".
+		const failingLlm = new MockLlmProvider();
+		// (no setFixture call — failingLlm.complete will reject)
+		const failingPlanService = new DailyPlanService(db, dayTreeService, taskService, failingLlm);
+
+		// Step 3: Attempt regenerate, expect rejection
+		await expect(failingPlanService.generatePlan('2026-04-07')).rejects.toThrow(
+			/No mock fixture registered for schema: chunk_plan/,
+		);
+
+		// Step 4: Re-query tasks. Both must still be attached to the OLD plan's
+		// chunks. If the LLM call were inside db.transaction(), the reset step
+		// would have already committed (because Drizzle's sync transaction
+		// auto-commits on each statement before the async LLM rejection),
+		// orphaning these tasks. The Pitfall 4 fix (LLM outside transaction)
+		// guarantees the entire reset+reassign sequence happens AFTER the LLM
+		// resolves successfully — so a failed LLM call leaves state untouched.
+		const t1After = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
+		const t2After = db.select().from(tasks).where(eq(tasks.id, t2.id)).get();
+		expect(t1After!.chunkId).toBe(t1OldChunkId);
+		expect(t2After!.chunkId).toBe(t2OldChunkId);
+		expect(t1After!.branchName).toBe(t1OldBranchName);
+		expect(t2After!.branchName).toBe(t2OldBranchName);
+	});
+
+	it('D-32: successful regenerate resets stale chunkId then reattaches via new plan', async () => {
+		// Plan A: t1 in Morning, t2+t3 in Day branch
+		const t1 = taskService.create({ name: 'Exercise' });
+		const t2 = taskService.create({ name: 'Code review' });
+		const t3 = taskService.create({ name: 'Write doc' });
+
+		llm.setFixture('chunk_plan', {
+			chunks: [
+				{
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
+				},
+				{
+					branchName: 'Day branch', label: 'Work', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+					tasks: [
+						{ taskId: t2.id, label: 'Code review', isLocked: false },
+						{ taskId: t3.id, label: 'Write doc', isLocked: false },
+					],
+				},
+			],
+			reasoning: 'Plan A.',
+		});
+
+		const planA = await planService.generatePlan('2026-04-06');
+		const planAMorningChunkId = planA.chunks[0].id;
+		const planADayChunkId = planA.chunks[1].id;
+
+		// Verify pre-state: tasks attached to plan A chunks
+		const t1A = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
+		expect(t1A!.chunkId).toBe(planAMorningChunkId);
+		expect(db.select().from(tasks).where(eq(tasks.id, t2.id)).get()!.chunkId).toBe(planADayChunkId);
+		expect(db.select().from(tasks).where(eq(tasks.id, t3.id)).get()!.chunkId).toBe(planADayChunkId);
+
+		// Plan B: LLM swaps assignments (t1 -> Day, t2 -> Morning, t3 -> Day)
+		llm.setFixture('chunk_plan', {
+			chunks: [
+				{
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [{ taskId: t2.id, label: 'Code review', isLocked: false }],
+				},
+				{
+					branchName: 'Day branch', label: 'Work', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+					tasks: [
+						{ taskId: t1.id, label: 'Exercise', isLocked: false },
+						{ taskId: t3.id, label: 'Write doc', isLocked: false },
+					],
+				},
+			],
+			reasoning: 'Plan B reshuffled.',
+		});
+
+		const planB = await planService.generatePlan('2026-04-07');
+		const planBMorningChunkId = planB.chunks[0].id;
+		const planBDayChunkId = planB.chunks[1].id;
+
+		// New chunk IDs are different from old ones
+		expect(planBMorningChunkId).not.toBe(planAMorningChunkId);
+		expect(planBDayChunkId).not.toBe(planADayChunkId);
+
+		// Tasks now point at plan B chunks (NOT plan A chunks)
+		const t1B = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
+		const t2B = db.select().from(tasks).where(eq(tasks.id, t2.id)).get();
+		const t3B = db.select().from(tasks).where(eq(tasks.id, t3.id)).get();
+		expect(t1B!.chunkId).toBe(planBDayChunkId);
+		expect(t2B!.chunkId).toBe(planBMorningChunkId);
+		expect(t3B!.chunkId).toBe(planBDayChunkId);
+		expect(t1B!.branchName).toBe('Day branch');
+		expect(t2B!.branchName).toBe('Morning duties');
+		expect(t3B!.branchName).toBe('Day branch');
+	});
+
+	it('D-32: regenerate clears chunkId for tasks the new plan does not include', async () => {
+		// Plan A: all 3 tasks attached
+		const t1 = taskService.create({ name: 'Exercise' });
+		const t2 = taskService.create({ name: 'Code review' });
+		const t3 = taskService.create({ name: 'Errands' });
+
+		llm.setFixture('chunk_plan', {
+			chunks: [
+				{
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [
+						{ taskId: t1.id, label: 'Exercise', isLocked: false },
+						{ taskId: t2.id, label: 'Code review', isLocked: false },
+						{ taskId: t3.id, label: 'Errands', isLocked: false },
+					],
+				},
+			],
+			reasoning: 'Plan A all attached.',
+		});
+
+		await planService.generatePlan('2026-04-06');
+		expect(db.select().from(tasks).where(eq(tasks.id, t1.id)).get()!.chunkId).not.toBeNull();
+		expect(db.select().from(tasks).where(eq(tasks.id, t2.id)).get()!.chunkId).not.toBeNull();
+		expect(db.select().from(tasks).where(eq(tasks.id, t3.id)).get()!.chunkId).not.toBeNull();
+
+		// Plan B: LLM only includes t1, drops t2 and t3
+		llm.setFixture('chunk_plan', {
+			chunks: [
+				{
+					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
+				},
+			],
+			reasoning: 'Plan B trimmed — only essential.',
+		});
+
+		await planService.generatePlan('2026-04-07');
+
+		// t1 still attached (to new plan), t2 and t3 reset to null (D-32)
+		expect(db.select().from(tasks).where(eq(tasks.id, t1.id)).get()!.chunkId).not.toBeNull();
+		expect(db.select().from(tasks).where(eq(tasks.id, t2.id)).get()!.chunkId).toBeNull();
+		expect(db.select().from(tasks).where(eq(tasks.id, t3.id)).get()!.chunkId).toBeNull();
+		expect(db.select().from(tasks).where(eq(tasks.id, t2.id)).get()!.branchName).toBeNull();
+		expect(db.select().from(tasks).where(eq(tasks.id, t3.id)).get()!.branchName).toBeNull();
+	});
 });
