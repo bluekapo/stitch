@@ -2,6 +2,7 @@ import type { Bot } from 'grammy';
 import type { AppConfig } from '../../config.js';
 import type { DailyPlanService } from '../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../core/day-tree-service.js';
+import type { IntentClassifierService } from '../../core/intent-classifier.js';
 import { TaskParserService } from '../../core/task-parser.js';
 import type { TaskService } from '../../core/task-service.js';
 import type { StitchDb } from '../../db/index.js';
@@ -29,10 +30,20 @@ export interface TelegramSetupOptions {
 	dayTreeService?: DayTreeService;
 	dailyPlanService?: DailyPlanService;
 	sttProvider?: SttProvider;
+	intentClassifierService?: IntentClassifierService;
 }
 
 export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {
-	const { config, taskService, llmProvider, db, dayTreeService, dailyPlanService, sttProvider } = options;
+	const {
+		config,
+		taskService,
+		llmProvider,
+		db,
+		dayTreeService,
+		dailyPlanService,
+		sttProvider,
+		intentClassifierService,
+	} = options;
 
 	const bot = createBot({
 		token: config.TELEGRAM_BOT_TOKEN,
@@ -58,21 +69,23 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 
 	const parser = new TaskParserService(llmProvider);
 
-	// Voice handler: transcribe → routeTextInput → cleanup
+	// Voice handler: transcribe → routeTextInput → cleanup.
+	// Phase 08.4 Pitfall 5: registerVoiceHandler now takes an options object.
 	if (sttProvider) {
-		registerVoiceHandler(
+		registerVoiceHandler({
 			bot,
 			sttProvider,
 			taskService,
 			parser,
-			config.TELEGRAM_BOT_TOKEN,
+			botToken: config.TELEGRAM_BOT_TOKEN,
 			dayTreeService,
 			db,
 			dailyPlanService,
-		);
+			intentClassifierService,
+		});
 	}
 
-	// Unified text handler: routeTextInput handles all commands + NL fallback, with cleanup
+	// Unified text handler: routeTextInput handles all commands + classifier dispatch
 	bot.on('message:text', async (ctx) => {
 		const text = ctx.message.text;
 		if (text.startsWith('/')) return; // Let command handlers process
@@ -83,6 +96,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 			parser,
 			dayTreeService,
 			dailyPlanService,
+			intentClassifierService,
 		});
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply, { parse_mode: 'HTML' });

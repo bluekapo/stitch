@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createTestBot, fakeVoiceMessageUpdate } from '../../helpers/telegram.js';
 import { createTestDb } from '../../helpers/db.js';
 import { TaskService } from '../../../src/core/task-service.js';
+import { DayTreeService } from '../../../src/core/day-tree-service.js';
+import { IntentClassifierService } from '../../../src/core/intent-classifier.js';
+import { MockLlmProvider } from '../../../src/providers/mock.js';
 import { registerVoiceHandler } from '../../../src/channels/telegram/handlers/voice-handler.js';
 import type { Bot } from 'grammy';
 import type { StitchContext } from '../../../src/channels/telegram/types.js';
@@ -27,13 +30,13 @@ function createFailingStt(): SttProvider {
 const mockParser = {
 	parse: async (text: string) => ({
 		name: text,
-		description: null,
+		description: undefined,
 		isEssential: false,
 		taskType: 'ad-hoc' as const,
-		deadline: null,
+		deadline: undefined,
 		recurrenceDay: undefined,
 	}),
-} as TaskParserService;
+} as unknown as TaskParserService;
 
 describe('voice-handler', () => {
 	let bot: Bot<StitchContext>;
@@ -65,68 +68,144 @@ describe('voice-handler', () => {
 		return ((send?.payload as Record<string, unknown>)?.text as string) ?? '';
 	}
 
-	function getAllReplyTexts(): string[] {
-		return outgoing
-			.filter((o) => o.method === 'sendMessage')
-			.map((o) => ((o.payload as Record<string, unknown>)?.text as string) ?? '');
-	}
+	// Test 1: Voice message triggers transcription and creates task via classifier dispatch
+	it('voice message triggers transcription and creates task via classifier dispatch', async () => {
+		const llm = new MockLlmProvider();
+		const dayTreeService = new DayTreeService(createTestDb(), llm);
+		const intentClassifierService = new IntentClassifierService(llm, dayTreeService, taskService);
+		llm.setFixture('intent_classifier', {
+			intent: 'task_create',
+			confidence: 0.95,
+			suggested_chunk_id: null,
+			suggested_branch_name: null,
+			is_essential: false,
+		});
 
-	// Test 1: Voice message triggers transcription and creates task via 'add' command
-	it('voice message triggers transcription and creates task via add command', async () => {
 		const stt = createMockStt('add buy groceries');
-		registerVoiceHandler(bot, stt, taskService, mockParser, 'fake:token');
+		registerVoiceHandler({
+			bot,
+			sttProvider: stt,
+			taskService,
+			parser: mockParser,
+			botToken: 'fake:token',
+			intentClassifierService,
+		});
 		await bot.init();
 
 		await bot.handleUpdate(fakeVoiceMessageUpdate() as never);
-		expect(getReplyText()).toContain('Task created: buy groceries');
+		expect(getReplyText()).toContain('Task created');
 	});
 
-	// Test 2: Voice message triggers transcription and lists tasks via 'list' command
-	it('voice message triggers transcription and lists tasks via list command', async () => {
+	// Test 2: Voice message lists tasks via classifier (task_query)
+	it('voice message lists tasks via classifier task_query', async () => {
 		taskService.create({ name: 'Existing Task' });
+
+		const llm = new MockLlmProvider();
+		const dayTreeService = new DayTreeService(createTestDb(), llm);
+		const intentClassifierService = new IntentClassifierService(llm, dayTreeService, taskService);
+		llm.setFixture('intent_classifier', {
+			intent: 'task_query',
+			confidence: 0.95,
+		});
+
 		const stt = createMockStt('list');
-		registerVoiceHandler(bot, stt, taskService, mockParser, 'fake:token');
+		registerVoiceHandler({
+			bot,
+			sttProvider: stt,
+			taskService,
+			parser: mockParser,
+			botToken: 'fake:token',
+			intentClassifierService,
+		});
 		await bot.init();
 
 		await bot.handleUpdate(fakeVoiceMessageUpdate() as never);
 		expect(getReplyText()).toContain('Existing Task');
 	});
 
-	// Test 3: Voice NL text falls through to parser
-	it('voice message with NL text falls through to parser', async () => {
+	// Test 3: Voice NL text routes through classifier task_create
+	it('voice message with NL text routes through classifier task_create', async () => {
+		const llm = new MockLlmProvider();
+		const dayTreeService = new DayTreeService(createTestDb(), llm);
+		const intentClassifierService = new IntentClassifierService(llm, dayTreeService, taskService);
+		llm.setFixture('intent_classifier', {
+			intent: 'task_create',
+			confidence: 0.9,
+			suggested_chunk_id: null,
+			suggested_branch_name: null,
+			is_essential: false,
+		});
+
 		const stt = createMockStt('I need to buy groceries tomorrow');
-		registerVoiceHandler(bot, stt, taskService, mockParser, 'fake:token');
+		registerVoiceHandler({
+			bot,
+			sttProvider: stt,
+			taskService,
+			parser: mockParser,
+			botToken: 'fake:token',
+			intentClassifierService,
+		});
 		await bot.init();
 
 		await bot.handleUpdate(fakeVoiceMessageUpdate() as never);
-		expect(getReplyText()).toContain('Task created:');
+		expect(getReplyText()).toContain('Task created');
 	});
 
-	// Test 4: Empty transcription replies with error message
+	// Test 4: Empty transcription replies with error message (UNCHANGED behavior, signature update only)
 	it('empty transcription replies with error message', async () => {
 		const stt = createMockStt('');
-		registerVoiceHandler(bot, stt, taskService, mockParser, 'fake:token');
+		registerVoiceHandler({
+			bot,
+			sttProvider: stt,
+			taskService,
+			parser: mockParser,
+			botToken: 'fake:token',
+		});
 		await bot.init();
 
 		await bot.handleUpdate(fakeVoiceMessageUpdate() as never);
 		expect(getReplyText()).toContain('Could not understand the voice message.');
 	});
 
-	// Test 5: STT failure replies with error message
+	// Test 5: STT failure replies with error message (UNCHANGED behavior, signature update only)
 	it('STT failure replies with error message', async () => {
 		const stt = createFailingStt();
-		registerVoiceHandler(bot, stt, taskService, mockParser, 'fake:token');
+		registerVoiceHandler({
+			bot,
+			sttProvider: stt,
+			taskService,
+			parser: mockParser,
+			botToken: 'fake:token',
+		});
 		await bot.init();
 
 		await bot.handleUpdate(fakeVoiceMessageUpdate() as never);
 		expect(getReplyText()).toContain('Voice transcription failed');
 	});
 
-	// Test 6: Voice message and reply scheduled for cleanup
+	// Test 6: Voice message and reply scheduled for cleanup (UNCHANGED behavior, signature + classifier update)
 	it('voice message and reply scheduled for cleanup', async () => {
 		vi.useFakeTimers();
+		const llm = new MockLlmProvider();
+		const dayTreeService = new DayTreeService(createTestDb(), llm);
+		const intentClassifierService = new IntentClassifierService(llm, dayTreeService, taskService);
+		llm.setFixture('intent_classifier', {
+			intent: 'task_create',
+			confidence: 0.9,
+			suggested_chunk_id: null,
+			suggested_branch_name: null,
+			is_essential: false,
+		});
+
 		const stt = createMockStt('add test cleanup');
-		registerVoiceHandler(bot, stt, taskService, mockParser, 'fake:token');
+		registerVoiceHandler({
+			bot,
+			sttProvider: stt,
+			taskService,
+			parser: mockParser,
+			botToken: 'fake:token',
+			intentClassifierService,
+		});
 		await bot.init();
 
 		await bot.handleUpdate(fakeVoiceMessageUpdate() as never);
@@ -149,7 +228,13 @@ describe('voice-handler', () => {
 		}));
 
 		const stt = createMockStt('should not reach');
-		registerVoiceHandler(bot, stt, taskService, mockParser, 'fake:token');
+		registerVoiceHandler({
+			bot,
+			sttProvider: stt,
+			taskService,
+			parser: mockParser,
+			botToken: 'fake:token',
+		});
 		await bot.init();
 
 		await bot.handleUpdate(fakeVoiceMessageUpdate() as never);

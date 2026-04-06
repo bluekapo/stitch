@@ -1,24 +1,48 @@
 import type { Bot } from 'grammy';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../../core/day-tree-service.js';
-import type { StitchDb } from '../../../db/index.js';
-import type { SttProvider } from '../../../providers/stt.js';
+import type { IntentClassifierService } from '../../../core/intent-classifier.js';
 import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
+import type { StitchDb } from '../../../db/index.js';
+import type { SttProvider } from '../../../providers/stt.js';
 import { scheduleCleanup } from '../cleanup.js';
 import type { StitchContext } from '../types.js';
 import { routeTextInput } from './text-router.js';
 
-export function registerVoiceHandler(
-	bot: Bot<StitchContext>,
-	sttProvider: SttProvider,
-	taskService: TaskService,
-	parser: TaskParserService,
-	botToken: string,
-	dayTreeService?: DayTreeService,
-	db?: StitchDb,
-	dailyPlanService?: DailyPlanService,
-): void {
+/**
+ * Options for registerVoiceHandler.
+ *
+ * Phase 08.4 (Pitfall 5): converted from 8 positional parameters to a single
+ * options object to eliminate positional drift bugs as the dependency surface
+ * grows. Optional fields stay optional via field-level `?` markers — same
+ * back-compat semantics as the old positional defaults.
+ */
+export interface VoiceHandlerOptions {
+	bot: Bot<StitchContext>;
+	sttProvider: SttProvider;
+	taskService: TaskService;
+	parser: TaskParserService;
+	botToken: string;
+	dayTreeService?: DayTreeService;
+	db?: StitchDb;
+	dailyPlanService?: DailyPlanService;
+	intentClassifierService?: IntentClassifierService;
+}
+
+export function registerVoiceHandler(options: VoiceHandlerOptions): void {
+	const {
+		bot,
+		sttProvider,
+		taskService,
+		parser,
+		botToken,
+		dayTreeService,
+		db,
+		dailyPlanService,
+		intentClassifierService,
+	} = options;
+
 	bot.on('message:voice', async (ctx) => {
 		const chatId = ctx.chat.id;
 		const voiceMsgId = ctx.message.message_id;
@@ -60,16 +84,16 @@ export function registerVoiceHandler(
 		}
 
 		// Route through shared text processing.
-		// Phase 08.3 D-16: pass dailyPlanService so the routeTextInput task-create
-		// branches apply the current-chunk attachment fallback. The actual
-		// resolveCurrentChunkAttachment() call lives inside routeTextInput so we
-		// do NOT duplicate it here -- voice-handler is a thin transcribe+route
-		// adapter and never calls taskService.create() directly.
+		// Phase 08.4 D-18: voice does NOT call intentClassifierService.classify
+		// directly. It delegates to routeTextInput which performs the classifier
+		// dispatch (or the explicit fast-path bypass) once per request. This
+		// keeps voice and text on a single shared code path.
 		const result = await routeTextInput(transcribedText, {
 			taskService,
 			parser,
 			dayTreeService,
 			dailyPlanService,
+			intentClassifierService,
 		});
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply);

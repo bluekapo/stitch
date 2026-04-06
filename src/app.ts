@@ -5,6 +5,7 @@ import { setupTelegramBot } from './channels/telegram/index.js';
 import { flushPendingCleanups } from './channels/telegram/cleanup.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
 import { DayTreeService } from './core/day-tree-service.js';
+import { IntentClassifierService } from './core/intent-classifier.js';
 import type { StitchContext } from './channels/telegram/types.js';
 import { type AppConfig, loadConfig } from './config.js';
 import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
@@ -60,6 +61,15 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	const dailyPlanService = new DailyPlanService(db, dayTreeService, taskService, llmProvider);
 	app.decorate('dailyPlanService', dailyPlanService);
 
+	// Intent classifier service (Phase 08.4)
+	const intentClassifierService = new IntentClassifierService(
+		llmProvider,
+		dayTreeService,
+		taskService,
+		dailyPlanService,
+	);
+	app.decorate('intentClassifierService', intentClassifierService);
+
 	// Recurrence scheduler
 	const scheduler = new RecurrenceScheduler(taskService, config.RECURRENCE_CRON_TIME);
 	app.decorate('scheduler', scheduler);
@@ -68,7 +78,16 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	if (options.telegramBot) {
 		app.decorate('bot', options.telegramBot);
 	} else if (config.TELEGRAM_BOT_TOKEN) {
-		const { bot, hub } = setupTelegramBot({ config, taskService, llmProvider, db, dayTreeService, dailyPlanService, sttProvider });
+		const { bot, hub } = setupTelegramBot({
+			config,
+			taskService,
+			llmProvider,
+			db,
+			dayTreeService,
+			dailyPlanService,
+			sttProvider,
+			intentClassifierService,
+		});
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);
 	}
