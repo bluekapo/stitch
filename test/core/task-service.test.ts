@@ -45,6 +45,53 @@ describe('TaskService', () => {
 			const task = service.getById(result.id);
 			expect(task?.description).toBe('Get milk and eggs');
 		});
+
+		describe('chunk_id + branch_name attachment (Phase 08.3)', () => {
+			// Helper: seed plan_chunks rows so tasks.chunk_id FK references resolve.
+			function seedPlanChunks(chunkIds: number[]) {
+				// biome-ignore lint/suspicious/noExplicitAny: direct sqlite access for FK seed setup
+				const sqlite = (db as any).$client as Database.Database;
+				sqlite.exec(`INSERT INTO daily_plans (id, date) VALUES (1, '2026-04-06');`);
+				for (const id of chunkIds) {
+					sqlite
+						.prepare(
+							`INSERT INTO plan_chunks (id, plan_id, branch_name, label, start_time, end_time)
+							 VALUES (?, 1, 'Morning', 'Test chunk', '08:00', '10:00')`,
+						)
+						.run(id);
+				}
+			}
+
+			it('persists chunkId and branchName when both provided', () => {
+				seedPlanChunks([5]);
+				const result = service.create({
+					name: 'Attached task',
+					chunkId: 5,
+					branchName: 'Morning',
+				});
+				const row = db.select().from(tasks).where(eq(tasks.id, result.id)).get();
+				expect(row?.chunkId).toBe(5);
+				expect(row?.branchName).toBe('Morning');
+			});
+
+			it('persists NULL chunkId and branchName when neither provided (existing behavior preserved)', () => {
+				const result = service.create({ name: 'Unattached task' });
+				const row = db.select().from(tasks).where(eq(tasks.id, result.id)).get();
+				expect(row?.chunkId).toBeNull();
+				expect(row?.branchName).toBeNull();
+			});
+
+			it('persists NULL when chunkId is explicitly null', () => {
+				const result = service.create({
+					name: 'Explicit null',
+					chunkId: null,
+					branchName: null,
+				});
+				const row = db.select().from(tasks).where(eq(tasks.id, result.id)).get();
+				expect(row?.chunkId).toBeNull();
+				expect(row?.branchName).toBeNull();
+			});
+		});
 	});
 
 	describe('list', () => {

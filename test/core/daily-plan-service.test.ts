@@ -4,7 +4,7 @@ import { MockLlmProvider } from '../../src/providers/mock.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
 import { TaskService } from '../../src/core/task-service.js';
 import { DailyPlanService } from '../../src/core/daily-plan-service.js';
-import { dayTrees, chunkTasks, planChunks, dailyPlans } from '../../src/db/schema.js';
+import { dayTrees, chunkTasks, planChunks, dailyPlans, tasks } from '../../src/db/schema.js';
 import { eq, asc } from 'drizzle-orm';
 import type { StitchDb } from '../../src/db/index.js';
 
@@ -254,5 +254,145 @@ describe('DailyPlanService', () => {
 
 		await expect(planService.generatePlan('2026-04-05'))
 			.rejects.toThrow('No day tree found.');
+	});
+
+	describe('dual-write tasks.chunk_id + branch_name (Phase 08.3)', () => {
+		it('generatePlan populates tasks.chunk_id and tasks.branch_name on each attached task', async () => {
+			const t1 = taskService.create({ name: 'Exercise' });
+			const t2 = taskService.create({ name: 'Shower' });
+			const t3 = taskService.create({ name: 'Code review' });
+
+			llm.setFixture('chunk_plan', {
+				chunks: [
+					{
+						branchName: 'Morning duties', label: 'Morning tasks', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						tasks: [
+							{ taskId: t1.id, label: 'Exercise', isLocked: false },
+							{ taskId: t2.id, label: 'Shower', isLocked: false },
+						],
+					},
+					{
+						branchName: 'Day branch', label: 'Work block', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+						tasks: [{ taskId: t3.id, label: 'Code review', isLocked: true }],
+					},
+				],
+				reasoning: 'Two task slot branches populated.',
+			});
+
+			const result = await planService.generatePlan('2026-04-05');
+			expect(result.chunks).toHaveLength(2);
+
+			const morningChunk = result.chunks[0];
+			const workChunk = result.chunks[1];
+
+			// Tasks 1 and 2 should be attached to morning chunk + 'Morning duties'
+			const t1Row = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
+			const t2Row = db.select().from(tasks).where(eq(tasks.id, t2.id)).get();
+			expect(t1Row?.chunkId).toBe(morningChunk.id);
+			expect(t1Row?.branchName).toBe('Morning duties');
+			expect(t2Row?.chunkId).toBe(morningChunk.id);
+			expect(t2Row?.branchName).toBe('Morning duties');
+
+			// Task 3 should be attached to work chunk + 'Day branch'
+			const t3Row = db.select().from(tasks).where(eq(tasks.id, t3.id)).get();
+			expect(t3Row?.chunkId).toBe(workChunk.id);
+			expect(t3Row?.branchName).toBe('Day branch');
+		});
+
+		it('listForChunk returns tasks attached by generatePlan (proves dual-write consistency)', async () => {
+			const t1 = taskService.create({ name: 'Exercise' });
+			const t2 = taskService.create({ name: 'Shower' });
+
+			llm.setFixture('chunk_plan', {
+				chunks: [
+					{
+						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						tasks: [
+							{ taskId: t1.id, label: 'Exercise', isLocked: false },
+							{ taskId: t2.id, label: 'Shower', isLocked: false },
+						],
+					},
+				],
+				reasoning: 'All in morning.',
+			});
+
+			const result = await planService.generatePlan('2026-04-05');
+			const morningChunkId = result.chunks[0].id;
+
+			const scoped = taskService.listForChunk(morningChunkId);
+			expect(scoped).toHaveLength(2);
+			expect(scoped.map((t) => t.name).sort()).toEqual(['Exercise', 'Shower']);
+		});
+
+		it('regenerating a plan updates tasks.chunk_id to the new chunk id', async () => {
+			const t1 = taskService.create({ name: 'Exercise' });
+
+			// First plan: assign to morning chunk
+			llm.setFixture('chunk_plan', {
+				chunks: [
+					{
+						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
+					},
+				],
+				reasoning: 'First plan.',
+			});
+			const firstPlan = await planService.generatePlan('2026-04-05');
+			const firstChunkId = firstPlan.chunks[0].id;
+
+			const t1AfterFirst = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
+			expect(t1AfterFirst?.chunkId).toBe(firstChunkId);
+
+			// Delete the first plan (simulating regeneration teardown)
+			db.delete(dailyPlans).where(eq(dailyPlans.id, firstPlan.id)).run();
+
+			// Second plan: assign same task to a Day-branch chunk
+			llm.setFixture('chunk_plan', {
+				chunks: [
+					{
+						branchName: 'Day branch', label: 'Day work', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+						tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
+					},
+				],
+				reasoning: 'Second plan moves it to day branch.',
+			});
+			const secondPlan = await planService.generatePlan('2026-04-06');
+			const secondChunkId = secondPlan.chunks[0].id;
+
+			expect(secondChunkId).not.toBe(firstChunkId);
+
+			const t1AfterSecond = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
+			expect(t1AfterSecond?.chunkId).toBe(secondChunkId);
+			expect(t1AfterSecond?.branchName).toBe('Day branch');
+		});
+
+		it('does not attempt to update tasks.chunk_id for taskId=0 (fixed blueprint blocks)', async () => {
+			// Per Phase 07 decision: taskId=0 maps to null in DB for fixed blueprint blocks.
+			// Validation in generatePlan drops these because validTaskIds only contains
+			// real pending task ids; the dual-write loop should never see taskId=0.
+			const t1 = taskService.create({ name: 'Real task' });
+
+			llm.setFixture('chunk_plan', {
+				chunks: [
+					{
+						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						tasks: [
+							{ taskId: t1.id, label: 'Real task', isLocked: false },
+							// Hallucinated id 0 -- should be dropped by validTaskIds filter
+							{ taskId: 0, label: 'Fixed block', isLocked: true },
+						],
+					},
+				],
+				reasoning: 'Dual write must not crash on taskId=0.',
+			});
+
+			// Should not throw
+			const result = await planService.generatePlan('2026-04-05');
+			expect(result.chunks).toHaveLength(1);
+
+			// Real task is attached
+			const t1Row = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
+			expect(t1Row?.chunkId).toBe(result.chunks[0].id);
+		});
 	});
 });
