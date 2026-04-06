@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
 	getCurrentChunk,
 	getNextChunkStartTime,
+	resolveCurrentChunkAttachment,
 	type PlanChunkWithTasks,
 } from '../../src/core/current-chunk.js';
+import type { DailyPlanService } from '../../src/core/daily-plan-service.js';
 
 function mkChunk(
 	id: number,
@@ -110,5 +112,82 @@ describe('getNextChunkStartTime', () => {
 		const now = new Date();
 		now.setHours(9, 0, 0, 0);
 		expect(getNextChunkStartTime(chunks, now)).toBe('14:00');
+	});
+});
+
+describe('resolveCurrentChunkAttachment (Phase 08.3 D-16 fallback)', () => {
+	function mkPlanService(overrides: {
+		getTodayPlan?: () => { id: number } | undefined;
+		getPlanWithChunks?: (id: number) => { chunks: PlanChunkWithTasks[] };
+	}): DailyPlanService {
+		return {
+			getTodayPlan: overrides.getTodayPlan ?? (() => undefined),
+			getPlanWithChunks: overrides.getPlanWithChunks ?? (() => ({ chunks: [] })),
+			// biome-ignore lint/suspicious/noExplicitAny: only the two methods above are exercised
+		} as any as DailyPlanService;
+	}
+
+	it('returns {chunkId: null, branchName: null} when dailyPlanService is undefined', () => {
+		const result = resolveCurrentChunkAttachment(undefined);
+		expect(result).toEqual({ chunkId: null, branchName: null });
+	});
+
+	it('returns {chunkId: null, branchName: null} when no plan exists for today', () => {
+		const service = mkPlanService({ getTodayPlan: () => undefined });
+		const result = resolveCurrentChunkAttachment(service);
+		expect(result).toEqual({ chunkId: null, branchName: null });
+	});
+
+	it('returns {chunkId: null, branchName: null} when no chunk contains the current time (gap)', () => {
+		const now = new Date();
+		now.setHours(13, 0, 0, 0); // gap between chunks 08-10 and 14-16
+		const service = mkPlanService({
+			getTodayPlan: () => ({ id: 1 }),
+			getPlanWithChunks: () => ({
+				chunks: [mkChunk(1, '08:00', '10:00'), mkChunk(2, '14:00', '16:00')],
+			}),
+		});
+		const result = resolveCurrentChunkAttachment(service, now);
+		expect(result).toEqual({ chunkId: null, branchName: null });
+	});
+
+	it('returns {chunkId, branchName} of the current chunk when one is active', () => {
+		const now = new Date();
+		now.setHours(11, 0, 0, 0); // inside chunk 2 (10-12)
+		const chunk2: PlanChunkWithTasks = {
+			...mkChunk(2, '10:00', '12:00'),
+			branchName: 'Day branch',
+		};
+		const service = mkPlanService({
+			getTodayPlan: () => ({ id: 7 }),
+			getPlanWithChunks: () => ({ chunks: [mkChunk(1, '08:00', '10:00'), chunk2] }),
+		});
+		const result = resolveCurrentChunkAttachment(service, now);
+		expect(result).toEqual({ chunkId: 2, branchName: 'Day branch' });
+	});
+
+	it('defaults now to new Date() when not provided (D-19 fresh-clock invariant)', () => {
+		// We mock Date so the helper uses our injected time without us passing it.
+		const realDate = Date;
+		const fixed = new realDate();
+		fixed.setHours(11, 0, 0, 0);
+		vi.spyOn(globalThis, 'Date').mockImplementation(((..._args: unknown[]) => {
+			return fixed;
+			// biome-ignore lint/suspicious/noExplicitAny: mock cast
+		}) as any);
+
+		const chunk2: PlanChunkWithTasks = {
+			...mkChunk(2, '10:00', '12:00'),
+			branchName: 'Day branch',
+		};
+		const service = mkPlanService({
+			getTodayPlan: () => ({ id: 7 }),
+			getPlanWithChunks: () => ({ chunks: [chunk2] }),
+		});
+
+		const result = resolveCurrentChunkAttachment(service);
+		expect(result).toEqual({ chunkId: 2, branchName: 'Day branch' });
+
+		vi.restoreAllMocks();
 	});
 });
