@@ -1,4 +1,8 @@
-import type { DailyPlanView } from '../../types/daily-plan.js';
+import type {
+	CurrentChunkTasksView,
+	CurrentChunkView,
+	DailyPlanView,
+} from '../../types/daily-plan.js';
 import type { DayTree } from '../../types/day-tree.js';
 import type { TaskDetail, TaskListItem } from '../../types/task.js';
 
@@ -75,7 +79,19 @@ export function renderTreeView(tree: DayTree): string {
 	return lines.join('\n');
 }
 
-export function renderDayPlanView(plan: DailyPlanView | undefined): string {
+/**
+ * Render the day plan as full-text HTML. mode='full' is the default and
+ * produces the "-- Full Day Plan ({date}) --" title for Screen 2 (drill-down).
+ * mode='focused' preserves the legacy "-- Day Plan ({date}) --" title for any
+ * existing caller that has not migrated to renderCurrentChunkView yet.
+ *
+ * The undefined-plan branch always renders "<b>-- Day Plan --</b>" (no date,
+ * no mode prefix) since there is no plan to label.
+ */
+export function renderDayPlanView(
+	plan?: DailyPlanView,
+	mode: 'focused' | 'full' = 'full',
+): string {
 	if (!plan) {
 		return [
 			'<b>-- Day Plan --</b>',
@@ -85,8 +101,9 @@ export function renderDayPlanView(plan: DailyPlanView | undefined): string {
 		].join('\n');
 	}
 
+	const titlePrefix = mode === 'full' ? '-- Full Day Plan' : '-- Day Plan';
 	const lines: string[] = [
-		`<b>-- Day Plan (${escapeHtml(plan.date)}) --</b>`,
+		`<b>${titlePrefix} (${escapeHtml(plan.date)}) --</b>`,
 		'',
 	];
 
@@ -107,6 +124,102 @@ export function renderDayPlanView(plan: DailyPlanView | undefined): string {
 			}
 		}
 		lines.push('');
+	}
+
+	return lines.join('\n');
+}
+
+/**
+ * Phase 08.3 Screen 1: focused Day Plan default view.
+ *
+ * Cases (per UI-SPEC §Screen 1 and CONTEXT D-04/D-07/D-08):
+ *   - undefined view              -> Case D: "No plan for today yet." fallback
+ *   - chunk === null && next set  -> Case B: "No active chunk. Next chunk starts at HH:MM."
+ *   - chunk === null && next null -> Case C: "No more chunks today."
+ *   - chunk !== null, tasks empty -> Case A header + "No tasks in this chunk."
+ *   - chunk !== null, tasks > 0   -> Case A header + task list with status icons
+ *
+ * Title is always "<b>-- Day Plan --</b>" (no date) — disambiguates from
+ * "<b>-- Full Day Plan ({date}) --</b>" produced by renderDayPlanView(plan, 'full').
+ */
+export function renderCurrentChunkView(view: CurrentChunkView | undefined): string {
+	if (!view) {
+		return [
+			'<b>-- Day Plan --</b>',
+			'',
+			'<i>No plan for today yet.</i>',
+			'<i>Set a day tree and restart to generate.</i>',
+		].join('\n');
+	}
+
+	if (!view.chunk) {
+		const body = view.nextChunkStartTime
+			? `<i>No active chunk. Next chunk starts at <code>${view.nextChunkStartTime}</code>.</i>`
+			: '<i>No more chunks today.</i>';
+		return ['<b>-- Day Plan --</b>', '', body].join('\n');
+	}
+
+	const lines: string[] = [
+		'<b>-- Day Plan --</b>',
+		'',
+		`<b>Branch:</b> ${escapeHtml(view.branchName ?? '')}`,
+		`<b>Chunk:</b> <code>${view.chunk.startTime}-${view.chunk.endTime}</code> ${escapeHtml(view.chunk.label)}`,
+		'',
+	];
+
+	if (view.chunk.tasks.length === 0) {
+		lines.push('<i>No tasks in this chunk.</i>');
+	} else {
+		for (const task of view.chunk.tasks) {
+			const statusIcon = task.status === 'completed'
+				? '\u2705 '
+				: task.status === 'active'
+					? '\u25B6 '
+					: task.status === 'skipped'
+						? '\u23ED '
+						: '  ';
+			const lockIcon = task.isLocked ? ' \uD83D\uDD12' : '';
+			lines.push(`${statusIcon}${escapeHtml(task.label)}${lockIcon}`);
+		}
+	}
+	return lines.join('\n');
+}
+
+/**
+ * Phase 08.3 Screen 3: scoped Tasks default view (text portion only).
+ *
+ * Renders the "-- Tasks --" header, the current chunk identifier line, and the
+ * empty-state copy. The actual per-task buttons are rendered by grammY in
+ * Wave 3 — this function only produces the text body, NOT the task list.
+ *
+ * Cases mirror renderCurrentChunkView but the body has NO branch line.
+ */
+export function renderCurrentChunkTasksView(view: CurrentChunkTasksView | undefined): string {
+	if (!view) {
+		return [
+			'<b>-- Tasks --</b>',
+			'',
+			'<i>No plan for today yet.</i>',
+			'<i>Set a day tree and restart to generate.</i>',
+		].join('\n');
+	}
+
+	if (!view.chunk) {
+		const body = view.nextChunkStartTime
+			? `<i>No active chunk. Next chunk starts at <code>${view.nextChunkStartTime}</code>.</i>`
+			: '<i>No more chunks today.</i>';
+		return ['<b>-- Tasks --</b>', '', body].join('\n');
+	}
+
+	const lines: string[] = [
+		'<b>-- Tasks --</b>',
+		'',
+		`<b>Chunk:</b> <code>${view.chunk.startTime}-${view.chunk.endTime}</code> ${escapeHtml(view.chunk.label)}`,
+	];
+
+	if (view.chunk.tasks.length === 0) {
+		lines.push('');
+		lines.push('<i>No tasks in this chunk.</i>');
 	}
 
 	return lines.join('\n');
