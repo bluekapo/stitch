@@ -60,7 +60,16 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 
 	// Voice handler: transcribe → routeTextInput → cleanup
 	if (sttProvider) {
-		registerVoiceHandler(bot, sttProvider, taskService, parser, config.TELEGRAM_BOT_TOKEN, dayTreeService, db);
+		registerVoiceHandler(
+			bot,
+			sttProvider,
+			taskService,
+			parser,
+			config.TELEGRAM_BOT_TOKEN,
+			dayTreeService,
+			db,
+			dailyPlanService,
+		);
 	}
 
 	// Unified text handler: routeTextInput handles all commands + NL fallback, with cleanup
@@ -69,7 +78,12 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		if (text.startsWith('/')) return; // Let command handlers process
 		const chatId = ctx.chat.id;
 		const userMsgId = ctx.message.message_id;
-		const result = await routeTextInput(text, { taskService, parser, dayTreeService });
+		const result = await routeTextInput(text, {
+			taskService,
+			parser,
+			dayTreeService,
+			dailyPlanService,
+		});
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply, { parse_mode: 'HTML' });
 			scheduleCleanup(ctx, chatId, userMsgId, reply.message_id, db);

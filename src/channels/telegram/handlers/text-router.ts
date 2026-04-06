@@ -1,3 +1,5 @@
+import { resolveCurrentChunkAttachment } from '../../../core/current-chunk.js';
+import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../../core/day-tree-service.js';
 import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
@@ -8,6 +10,7 @@ export interface TextRouterDeps {
 	taskService: TaskService;
 	parser: TaskParserService;
 	dayTreeService?: DayTreeService;
+	dailyPlanService?: DailyPlanService;
 }
 
 /**
@@ -31,7 +34,8 @@ export async function routeTextInput(
 			const rawName = addEssentialMatch[1].trim();
 			const parsed = createTaskSchema.safeParse({ name: rawName, isEssential: true });
 			if (!parsed.success) return { reply: 'Task name must be 1-200 characters.' };
-			const task = taskService.create(parsed.data);
+			const attachment = resolveCurrentChunkAttachment(deps.dailyPlanService);
+			const task = taskService.create({ ...parsed.data, ...attachment });
 			return { reply: `Essential task created: ${task.name} (#${task.id})` };
 		}
 
@@ -41,7 +45,8 @@ export async function routeTextInput(
 			const rawName = addMatch[1].trim();
 			const parsed = createTaskSchema.safeParse({ name: rawName });
 			if (!parsed.success) return { reply: 'Task name must be 1-200 characters.' };
-			const task = taskService.create(parsed.data);
+			const attachment = resolveCurrentChunkAttachment(deps.dailyPlanService);
+			const task = taskService.create({ ...parsed.data, ...attachment });
 			return { reply: `Task created: ${task.name} (#${task.id})` };
 		}
 
@@ -128,6 +133,7 @@ export async function routeTextInput(
 		// NL fallback: parse via LLM
 		const parsed = await parser.parse(text);
 		const recurrenceDay = parsed.taskType === 'weekly' ? parsed.recurrenceDay : undefined;
+		const attachment = resolveCurrentChunkAttachment(deps.dailyPlanService);
 		const task = taskService.create({
 			name: parsed.name,
 			description: parsed.description,
@@ -135,6 +141,7 @@ export async function routeTextInput(
 			taskType: parsed.taskType,
 			deadline: parsed.deadline,
 			recurrenceDay,
+			...attachment,
 		});
 		let reply = `Task created: ${task.name} (#${task.id})`;
 		if (parsed.taskType !== 'ad-hoc') reply += `\nType: ${parsed.taskType}`;

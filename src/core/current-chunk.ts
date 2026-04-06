@@ -1,4 +1,5 @@
 import type { ChunkTask, PlanChunk } from '../types/daily-plan.js';
+import type { DailyPlanService } from './daily-plan-service.js';
 
 /**
  * A plan chunk with its associated tasks. The resolver itself never touches
@@ -48,4 +49,33 @@ export function getNextChunkStartTime(chunks: PlanChunkWithTasks[], now: Date): 
 /** Local-time HH:MM string from a Date. Do not replace with UTC helpers. */
 function toHhmm(d: Date): string {
 	return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * Phase 08.3 D-16 fallback: resolve the current-chunk attachment for a newly
+ * created task. If a current chunk is active right now, returns its id and
+ * branchName; otherwise returns {null, null} (the task lands fully unattached
+ * and only appears in the All Tasks drill-down view).
+ *
+ * Used by:
+ *   - src/channels/telegram/handlers/text-router.ts (add, add!, NL parse)
+ *   - src/channels/telegram/handlers/voice-handler.ts (after parse-or-route)
+ *
+ * No LLM call. The richer "LLM picks the right chunk" path (D-15/D-17) is
+ * deferred to Phase 08.4 per RESEARCH §8 recommendation.
+ *
+ * Defaults `now` to `new Date()` so production callers always re-evaluate
+ * the wall clock fresh per call (D-19 invariant).
+ */
+export function resolveCurrentChunkAttachment(
+	dailyPlanService?: DailyPlanService,
+	now: Date = new Date(),
+): { chunkId: number | null; branchName: string | null } {
+	if (!dailyPlanService) return { chunkId: null, branchName: null };
+	const plan = dailyPlanService.getTodayPlan();
+	if (!plan) return { chunkId: null, branchName: null };
+	const { chunks } = dailyPlanService.getPlanWithChunks(plan.id);
+	const current = getCurrentChunk(chunks, now);
+	if (!current) return { chunkId: null, branchName: null };
+	return { chunkId: current.id, branchName: current.branchName };
 }

@@ -1,4 +1,5 @@
 import type { Bot } from 'grammy';
+import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../../core/day-tree-service.js';
 import type { StitchDb } from '../../../db/index.js';
 import type { SttProvider } from '../../../providers/stt.js';
@@ -16,6 +17,7 @@ export function registerVoiceHandler(
 	botToken: string,
 	dayTreeService?: DayTreeService,
 	db?: StitchDb,
+	dailyPlanService?: DailyPlanService,
 ): void {
 	bot.on('message:voice', async (ctx) => {
 		const chatId = ctx.chat.id;
@@ -57,8 +59,18 @@ export function registerVoiceHandler(
 			return;
 		}
 
-		// Route through shared text processing
-		const result = await routeTextInput(transcribedText, { taskService, parser, dayTreeService });
+		// Route through shared text processing.
+		// Phase 08.3 D-16: pass dailyPlanService so the routeTextInput task-create
+		// branches apply the current-chunk attachment fallback. The actual
+		// resolveCurrentChunkAttachment() call lives inside routeTextInput so we
+		// do NOT duplicate it here -- voice-handler is a thin transcribe+route
+		// adapter and never calls taskService.create() directly.
+		const result = await routeTextInput(transcribedText, {
+			taskService,
+			parser,
+			dayTreeService,
+			dailyPlanService,
+		});
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply);
 			scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id, db);

@@ -167,14 +167,13 @@ describe('resolveCurrentChunkAttachment (Phase 08.3 D-16 fallback)', () => {
 	});
 
 	it('defaults now to new Date() when not provided (D-19 fresh-clock invariant)', () => {
-		// We mock Date so the helper uses our injected time without us passing it.
-		const realDate = Date;
-		const fixed = new realDate();
+		// Use vitest fake timers instead of mocking Date constructor directly --
+		// the latter trips up V8's Reflect.construct call inside default-arg
+		// expression evaluation. Fake timers are the supported pattern.
+		vi.useFakeTimers();
+		const fixed = new Date();
 		fixed.setHours(11, 0, 0, 0);
-		vi.spyOn(globalThis, 'Date').mockImplementation(((..._args: unknown[]) => {
-			return fixed;
-			// biome-ignore lint/suspicious/noExplicitAny: mock cast
-		}) as any);
+		vi.setSystemTime(fixed);
 
 		const chunk2: PlanChunkWithTasks = {
 			...mkChunk(2, '10:00', '12:00'),
@@ -188,6 +187,6 @@ describe('resolveCurrentChunkAttachment (Phase 08.3 D-16 fallback)', () => {
 		const result = resolveCurrentChunkAttachment(service);
 		expect(result).toEqual({ chunkId: 2, branchName: 'Day branch' });
 
-		vi.restoreAllMocks();
+		vi.useRealTimers();
 	});
 });
