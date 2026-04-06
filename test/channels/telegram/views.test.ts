@@ -9,9 +9,15 @@ import {
 	renderTaskListText,
 	renderHubView,
 	renderDayPlanView,
+	renderCurrentChunkView,
+	renderCurrentChunkTasksView,
 } from '../../../src/channels/telegram/views.js';
 import type { TaskListItem, TaskDetail } from '../../../src/types/task.js';
-import type { DailyPlanView } from '../../../src/types/daily-plan.js';
+import type {
+	CurrentChunkTasksView,
+	CurrentChunkView,
+	DailyPlanView,
+} from '../../../src/types/daily-plan.js';
 
 describe('escapeHtml', () => {
 	it('escapes < > & characters', () => {
@@ -225,5 +231,204 @@ describe('renderDayPlanView', () => {
 	it('includes the plan date in the header', () => {
 		const result = renderDayPlanView(planView);
 		expect(result).toContain('2026-04-05');
+	});
+
+	it('default mode (no arg) renders "-- Full Day Plan ({date}) --" title', () => {
+		const result = renderDayPlanView(planView);
+		expect(result).toContain('-- Full Day Plan (2026-04-05) --');
+	});
+
+	it('mode="full" renders "-- Full Day Plan ({date}) --" title', () => {
+		const result = renderDayPlanView(planView, 'full');
+		expect(result).toContain('-- Full Day Plan (2026-04-05) --');
+	});
+
+	it('mode="focused" renders "-- Day Plan ({date}) --" title (legacy)', () => {
+		const result = renderDayPlanView(planView, 'focused');
+		expect(result).toContain('-- Day Plan (2026-04-05) --');
+		expect(result).not.toContain('Full Day Plan');
+	});
+
+	it('renderDayPlanView() with no args still returns "No plan" fallback (backward compat)', () => {
+		const result = renderDayPlanView();
+		expect(result).toContain('No plan for today yet.');
+	});
+});
+
+describe('renderCurrentChunkView', () => {
+	const baseView: CurrentChunkView = {
+		date: '2026-04-06',
+		branchName: 'Day cycle',
+		chunk: {
+			label: 'Deep work',
+			startTime: '10:00',
+			endTime: '12:00',
+			tasks: [
+				{ label: 'Write report', status: 'active', isLocked: false },
+				{ label: 'Review PR', status: 'pending', isLocked: true },
+				{ label: 'Reply to email', status: 'completed', isLocked: false },
+				{ label: 'Cancelled meeting', status: 'skipped', isLocked: false },
+			],
+		},
+		nextChunkStartTime: null,
+	};
+
+	it('Case A: renders title, branch line, chunk line, and task list when chunk has tasks', () => {
+		const result = renderCurrentChunkView(baseView);
+		expect(result).toContain('<b>-- Day Plan --</b>');
+		expect(result).toContain('<b>Branch:</b> Day cycle');
+		expect(result).toContain('<b>Chunk:</b> <code>10:00-12:00</code> Deep work');
+		expect(result).toContain('Write report');
+		expect(result).toContain('Review PR');
+		expect(result).toContain('Reply to email');
+		expect(result).toContain('Cancelled meeting');
+	});
+
+	it('Case A: renders status icons for active/completed/skipped/pending tasks', () => {
+		const result = renderCurrentChunkView(baseView);
+		// active: ▶
+		expect(result).toContain('\u25B6 Write report');
+		// completed: ✅
+		expect(result).toContain('\u2705 Reply to email');
+		// skipped: ⏭
+		expect(result).toContain('\u23ED Cancelled meeting');
+		// locked task gets the lock icon
+		expect(result).toContain('Review PR \uD83D\uDD12');
+	});
+
+	it('Case A with zero tasks: renders "No tasks in this chunk." italic', () => {
+		const view: CurrentChunkView = {
+			...baseView,
+			chunk: { ...baseView.chunk!, tasks: [] },
+		};
+		const result = renderCurrentChunkView(view);
+		expect(result).toContain('<b>-- Day Plan --</b>');
+		expect(result).toContain('<b>Chunk:</b> <code>10:00-12:00</code> Deep work');
+		expect(result).toContain('<i>No tasks in this chunk.</i>');
+	});
+
+	it('Case B: chunk=null and nextChunkStartTime set renders "No active chunk. Next chunk starts at" copy', () => {
+		const view: CurrentChunkView = {
+			date: '2026-04-06',
+			branchName: null,
+			chunk: null,
+			nextChunkStartTime: '14:00',
+		};
+		const result = renderCurrentChunkView(view);
+		expect(result).toContain('<b>-- Day Plan --</b>');
+		expect(result).toContain(
+			'<i>No active chunk. Next chunk starts at <code>14:00</code>.</i>',
+		);
+		expect(result).not.toContain('Branch:');
+	});
+
+	it('Case C: chunk=null and nextChunkStartTime=null renders "No more chunks today."', () => {
+		const view: CurrentChunkView = {
+			date: '2026-04-06',
+			branchName: null,
+			chunk: null,
+			nextChunkStartTime: null,
+		};
+		const result = renderCurrentChunkView(view);
+		expect(result).toContain('<b>-- Day Plan --</b>');
+		expect(result).toContain('<i>No more chunks today.</i>');
+	});
+
+	it('Case D: view=undefined renders "No plan for today yet." fallback', () => {
+		const result = renderCurrentChunkView(undefined);
+		expect(result).toContain('<b>-- Day Plan --</b>');
+		expect(result).toContain('<i>No plan for today yet.</i>');
+		expect(result).toContain('<i>Set a day tree and restart to generate.</i>');
+	});
+
+	it('escapes HTML in branch and chunk label and task labels', () => {
+		const view: CurrentChunkView = {
+			date: '2026-04-06',
+			branchName: '<script>',
+			chunk: {
+				label: '<bad>',
+				startTime: '10:00',
+				endTime: '12:00',
+				tasks: [{ label: '<evil>', status: 'pending', isLocked: false }],
+			},
+			nextChunkStartTime: null,
+		};
+		const result = renderCurrentChunkView(view);
+		expect(result).toContain('&lt;script&gt;');
+		expect(result).toContain('&lt;bad&gt;');
+		expect(result).toContain('&lt;evil&gt;');
+		expect(result).not.toContain('<script>');
+	});
+});
+
+describe('renderCurrentChunkTasksView', () => {
+	const baseView: CurrentChunkTasksView = {
+		chunk: {
+			label: 'Deep work',
+			startTime: '10:00',
+			endTime: '12:00',
+			tasks: [
+				{ id: 1, name: 'Write report', status: 'active', isEssential: false, timerStartedAt: null },
+				{ id: 2, name: 'Review PR', status: 'pending', isEssential: true, timerStartedAt: null },
+			],
+		},
+		nextChunkStartTime: null,
+	};
+
+	it('Case A: renders "-- Tasks --" title and chunk line (task buttons rendered by grammY)', () => {
+		const result = renderCurrentChunkTasksView(baseView);
+		expect(result).toContain('<b>-- Tasks --</b>');
+		expect(result).toContain('<b>Chunk:</b> <code>10:00-12:00</code> Deep work');
+		// Tasks view does NOT render branch line — only chunk
+		expect(result).not.toContain('Branch:');
+	});
+
+	it('Case A with empty tasks: renders "No tasks in this chunk." italic', () => {
+		const view: CurrentChunkTasksView = {
+			chunk: { ...baseView.chunk!, tasks: [] },
+			nextChunkStartTime: null,
+		};
+		const result = renderCurrentChunkTasksView(view);
+		expect(result).toContain('<b>-- Tasks --</b>');
+		expect(result).toContain('<b>Chunk:</b> <code>10:00-12:00</code> Deep work');
+		expect(result).toContain('<i>No tasks in this chunk.</i>');
+	});
+
+	it('Case B: chunk=null and nextChunkStartTime set renders "No active chunk." copy', () => {
+		const view: CurrentChunkTasksView = { chunk: null, nextChunkStartTime: '14:00' };
+		const result = renderCurrentChunkTasksView(view);
+		expect(result).toContain('<b>-- Tasks --</b>');
+		expect(result).toContain(
+			'<i>No active chunk. Next chunk starts at <code>14:00</code>.</i>',
+		);
+	});
+
+	it('Case C: chunk=null and nextChunkStartTime=null renders "No more chunks today."', () => {
+		const view: CurrentChunkTasksView = { chunk: null, nextChunkStartTime: null };
+		const result = renderCurrentChunkTasksView(view);
+		expect(result).toContain('<b>-- Tasks --</b>');
+		expect(result).toContain('<i>No more chunks today.</i>');
+	});
+
+	it('Case D: view=undefined renders "No plan for today yet." fallback', () => {
+		const result = renderCurrentChunkTasksView(undefined);
+		expect(result).toContain('<b>-- Tasks --</b>');
+		expect(result).toContain('<i>No plan for today yet.</i>');
+		expect(result).toContain('<i>Set a day tree and restart to generate.</i>');
+	});
+
+	it('escapes HTML in chunk label', () => {
+		const view: CurrentChunkTasksView = {
+			chunk: {
+				label: '<bad>',
+				startTime: '10:00',
+				endTime: '12:00',
+				tasks: [],
+			},
+			nextChunkStartTime: null,
+		};
+		const result = renderCurrentChunkTasksView(view);
+		expect(result).toContain('&lt;bad&gt;');
+		expect(result).not.toContain('<bad>');
 	});
 });
