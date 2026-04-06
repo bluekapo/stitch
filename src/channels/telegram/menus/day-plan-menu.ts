@@ -15,6 +15,7 @@ export function createDayPlanMenu(dayTreeService?: DayTreeService): Menu<StitchC
 				await ctx.answerCallbackQuery('No day tree set yet.');
 				return;
 			}
+			ctx.menu.nav('day-tree-view');
 			await ctx.editMessageText(renderTreeView(tree), { parse_mode: 'HTML' });
 		})
 		.row()
@@ -25,6 +26,17 @@ export function createDayPlanMenu(dayTreeService?: DayTreeService): Menu<StitchC
 				{ parse_mode: 'HTML' },
 			);
 		});
+
+	const treeViewMenu = new Menu<StitchContext>('day-tree-view')
+		.text('<< Back to Hub', async (ctx) => {
+			ctx.menu.nav('hub');
+			await ctx.editMessageText(
+				renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null }),
+				{ parse_mode: 'HTML' },
+			);
+		});
+
+	menu.register(treeViewMenu);
 
 	return menu;
 }
