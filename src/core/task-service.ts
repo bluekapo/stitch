@@ -1,7 +1,7 @@
 import { eq, sql, sum } from 'drizzle-orm';
 import type { StitchDb } from '../db/index.js';
 import { tasks, taskDurations } from '../db/schema.js';
-import type { CreateTaskInput, TaskDetail } from '../types/task.js';
+import type { CreateTaskInput, TaskDetail, TaskListItem } from '../types/task.js';
 
 export class TaskService {
 	constructor(private db: StitchDb) {}
@@ -25,6 +25,28 @@ export class TaskService {
 
 	list() {
 		return this.db.select().from(tasks).all();
+	}
+
+	/**
+	 * Phase 08.3: scoped task list for the current chunk view (Screen 3).
+	 * Returns only tasks whose chunk_id matches `chunkId`. Tasks with
+	 * chunk_id = NULL are NOT included -- they only appear in the All Tasks
+	 * drill-down view.
+	 *
+	 * Returns the TaskListItem shape directly so callers do not need to map.
+	 */
+	listForChunk(chunkId: number): TaskListItem[] {
+		return this.db
+			.select({
+				id: tasks.id,
+				name: tasks.name,
+				status: tasks.status,
+				isEssential: tasks.isEssential,
+				timerStartedAt: tasks.timerStartedAt,
+			})
+			.from(tasks)
+			.where(eq(tasks.chunkId, chunkId))
+			.all();
 	}
 
 	getById(id: number) {
