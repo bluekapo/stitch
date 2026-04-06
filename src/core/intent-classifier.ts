@@ -82,7 +82,7 @@ export class IntentClassifierService {
 		private llmProvider: LlmProvider,
 		private dayTreeService: DayTreeService,
 		private taskService: TaskService,
-		private dailyPlanService: DailyPlanService,
+		private dailyPlanService?: DailyPlanService,
 	) {}
 
 	async classify(userInput: string): Promise<ClassifiedIntent> {
@@ -94,8 +94,8 @@ export class IntentClassifierService {
 			.map((t) => `  ID:${t.id} "${t.name}" status:${t.status}`)
 			.join('\n');
 
-		const plan = this.dailyPlanService.getTodayPlan();
-		const chunks = plan ? this.dailyPlanService.getPlanWithChunks(plan.id).chunks : [];
+		const plan = this.dailyPlanService?.getTodayPlan();
+		const chunks = plan ? this.dailyPlanService!.getPlanWithChunks(plan.id).chunks : [];
 		const now = new Date();
 		const current = getCurrentChunk(chunks, now);
 
