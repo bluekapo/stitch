@@ -256,3 +256,68 @@ describe('Day Tree View submenu back button (Phase 08.3 D-21)', () => {
 		expect((rendered[0][0] as { text: string }).text).toBe('<< Back to Day Plan');
 	});
 });
+
+describe('Tasks menu structure (Phase 08.3)', () => {
+	it('has All Tasks, Refresh, and << Back to Hub buttons', async () => {
+		const { tasksMenu } = createTasksMenu(makeTaskService(), undefined);
+
+		const rendered = await tasksMenu.render(renderCtx);
+		// With no dailyPlanService the dynamic range produces 0 rows, so the
+		// static button rows sit at positions 0 and 1.
+		// row 0: [All Tasks] [Refresh]
+		// row 1: [<< Back to Hub]
+		expect((rendered[0][0] as { text: string }).text).toBe('All Tasks');
+		expect((rendered[0][1] as { text: string }).text).toBe('Refresh');
+		expect((rendered[1][0] as { text: string }).text).toBe('<< Back to Hub');
+	});
+
+	it('Tasks menu with no active chunk (no dailyPlanService) renders Case D copy', async () => {
+		const { bot, outgoing } = createTestBot();
+		const taskService = makeTaskService();
+		const { hubMenu } = registerMenus(bot, taskService);
+
+		// Fire the Tasks button press which navigates to the scoped tasks view.
+		const rendered = await hubMenu.render(renderCtx);
+		const tasksBtn = rendered[0][1] as { callback_data: string; text: string };
+		await bot.handleUpdate(callbackQueryUpdate(tasksBtn.callback_data) as never);
+
+		const editCalls = outgoing.filter((c) => c.method === 'editMessageText');
+		expect(editCalls.length).toBeGreaterThanOrEqual(1);
+		const editPayload = editCalls[editCalls.length - 1].payload as Record<string, unknown>;
+		// No plan available -> builder returns undefined -> Case D fallback.
+		expect(editPayload.text).toContain('-- Tasks --');
+		expect(editPayload.text).toContain('No plan for today yet.');
+	});
+});
+
+describe('All Tasks submenu (Phase 08.3)', () => {
+	it('has Refresh and << Back to Tasks buttons', async () => {
+		const { tasksMenu } = createTasksMenu(makeTaskService(), undefined);
+		// biome-ignore lint: inspecting internal registry for test assertion
+		const index = (tasksMenu as unknown as { index: Map<string, Menu<never>> }).index;
+		const allTasksMenu = index.get('all-tasks');
+		expect(allTasksMenu).toBeInstanceOf(Menu);
+
+		const rendered = await (allTasksMenu as Menu<never>).render(renderCtx as never);
+		// row 0: Refresh (static, no dynamic tasks)
+		// row 1: << Back to Tasks
+		expect((rendered[0][0] as { text: string }).text).toBe('Refresh');
+		expect((rendered[1][0] as { text: string }).text).toBe('<< Back to Tasks');
+	});
+});
+
+describe('Task Detail menu dual registration (Phase 08.3 OQ-1)', () => {
+	it('registers task-detail-from-chunk under tasksMenu and task-detail-from-all under allTasksMenu', () => {
+		const { tasksMenu } = createTasksMenu(makeTaskService(), undefined);
+		// biome-ignore lint: inspecting internal registry for test assertion
+		const tasksIndex = (tasksMenu as unknown as { index: Map<string, Menu<never>> }).index;
+
+		// task-detail-from-chunk and all-tasks are registered directly under tasksMenu.
+		expect(tasksIndex.get('task-detail-from-chunk')).toBeInstanceOf(Menu);
+		expect(tasksIndex.get('all-tasks')).toBeInstanceOf(Menu);
+
+		// task-detail-from-all is registered under all-tasks; grammY's shared
+		// menu index surfaces it at the top level of the registered tree.
+		expect(tasksIndex.get('task-detail-from-all')).toBeInstanceOf(Menu);
+	});
+});

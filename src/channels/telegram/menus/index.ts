@@ -23,12 +23,14 @@ export function registerMenus(
 ): RegisteredMenus {
 	const hubMenu = createHubMenu(taskService, dailyPlanService);
 	const dayPlanMenu = createDayPlanMenu(dayTreeService, dailyPlanService);
-	const { tasksMenu, taskDetailMenu } = createTasksMenu(taskService);
+	const { tasksMenu, taskDetailMenu } = createTasksMenu(taskService, dailyPlanService);
 
-	// Register submenus on parent before bot.use (Pitfall 6)
+	// Register top-level submenus on parent before bot.use (Pitfall 6).
+	// Note: createTasksMenu already registers task-detail-from-chunk under
+	// tasksMenu, plus all-tasks under tasksMenu and task-detail-from-all
+	// under all-tasks. We only need to attach tasksMenu and dayPlanMenu to hub.
 	hubMenu.register(dayPlanMenu);
 	hubMenu.register(tasksMenu);
-	tasksMenu.register(taskDetailMenu);
 
 	// Install root menu on bot
 	bot.use(hubMenu);
