@@ -12,6 +12,13 @@ export function createDb(dbPath: string) {
 	}
 	const sqlite = new Database(dbPath);
 	sqlite.pragma('journal_mode = WAL');
+	// Phase 08.3 Pitfall 4 fix: enable foreign_keys so ON DELETE SET NULL actually
+	// fires on tasks.chunk_id when plan_chunks rows are deleted (regenerating a plan).
+	// Must be set BEFORE migrations because FK behavior is connection-scoped.
+	sqlite.pragma('foreign_keys = ON');
+	// Ordering note: migrateDailyPlanSchema creates plan_chunks; migrateSchema creates
+	// tasks referencing it. SQLite allows FK to a not-yet-existing table at CREATE
+	// TABLE time -- enforcement only kicks in at row-level writes -- so order is fine.
 	migrateSchema(sqlite);
 	migrateBlueprintSchema(sqlite);
 	migrateDailyPlanSchema(sqlite);
@@ -35,6 +42,8 @@ function migrateSchema(sqlite: Database.Database) {
 			deadline TEXT,
 			source_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
 			timer_started_at TEXT,
+			chunk_id INTEGER REFERENCES plan_chunks(id) ON DELETE SET NULL,
+			branch_name TEXT,
 			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
@@ -51,15 +60,49 @@ function migrateSchema(sqlite: Database.Database) {
 	const existing = new Set(
 		(sqlite.pragma('table_info(tasks)') as { name: string }[]).map((c) => c.name),
 	);
+	// Capture BEFORE the ALTER loop so we can gate the backfill on "was just added".
+	const didAddChunkId = !existing.has('chunk_id');
 	const additions: [string, string][] = [
 		['task_type', `TEXT NOT NULL DEFAULT 'ad-hoc'`],
 		['recurrence_day', 'INTEGER'],
 		['deadline', 'TEXT'],
 		['source_task_id', 'INTEGER REFERENCES tasks(id) ON DELETE SET NULL'],
+		// Phase 08.3: direct task->chunk attachment. Both nullable (no NOT NULL -- sidesteps
+		// SQLite's table-recreation requirement for dropping NOT NULL later).
+		['chunk_id', 'INTEGER REFERENCES plan_chunks(id) ON DELETE SET NULL'],
+		['branch_name', 'TEXT'],
 	];
 	for (const [col, def] of additions) {
 		if (!existing.has(col)) {
 			sqlite.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
+		}
+	}
+
+	// Phase 08.3 backfill: populate chunk_id and branch_name from the most-recent
+	// chunk_tasks link for each task. Only runs on the migration that introduced
+	// the columns -- subsequent runs see chunk_id already present and skip.
+	// Guarded on chunk_tasks existing because migrateSchema runs before
+	// migrateDailyPlanSchema on fresh DBs where chunk_tasks does not yet exist.
+	if (didAddChunkId) {
+		const chunkTasksExists = sqlite
+			.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chunk_tasks'")
+			.get();
+		if (chunkTasksExists) {
+			sqlite.exec(`
+				UPDATE tasks SET chunk_id = (
+					SELECT ct.chunk_id FROM chunk_tasks ct
+					WHERE ct.task_id = tasks.id
+					ORDER BY ct.id DESC LIMIT 1
+				) WHERE chunk_id IS NULL;
+			`);
+			sqlite.exec(`
+				UPDATE tasks SET branch_name = (
+					SELECT pc.branch_name FROM chunk_tasks ct
+					JOIN plan_chunks pc ON pc.id = ct.chunk_id
+					WHERE ct.task_id = tasks.id
+					ORDER BY ct.id DESC LIMIT 1
+				) WHERE branch_name IS NULL;
+			`);
 		}
 	}
 }

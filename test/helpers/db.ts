@@ -19,6 +19,8 @@ export function createTestDb() {
 			deadline TEXT,
 			source_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
 			timer_started_at TEXT,
+			chunk_id INTEGER REFERENCES plan_chunks(id) ON DELETE SET NULL,
+			branch_name TEXT,
 			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);

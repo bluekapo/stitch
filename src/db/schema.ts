@@ -22,6 +22,11 @@ export const tasks = sqliteTable('tasks', {
 	deadline: text('deadline'),
 	sourceTaskId: integer('source_task_id'), // FK to tasks.id (self-ref, enforced in DDL)
 	timerStartedAt: text('timer_started_at'),
+	// Phase 08.3: direct task->chunk attachment + denormalized branch name.
+	// Both nullable. chunk_id FK uses ON DELETE SET NULL so regenerating a plan
+	// (which deletes old chunks) drops stale references instead of orphaning rows.
+	chunkId: integer('chunk_id'), // FK to plan_chunks.id ON DELETE SET NULL (enforced in DDL)
+	branchName: text('branch_name'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });
