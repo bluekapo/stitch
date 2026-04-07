@@ -15,6 +15,10 @@ describe('loadConfig', () => {
 		delete process.env.WHISPER_SERVER_URL;
 		delete process.env.STT_PROVIDER;
 		delete process.env.TELEGRAM_ALLOWED_USER_ID;
+		// Phase 9 cleanups
+		delete process.env.NUDGE_TICK_INTERVAL_MS;
+		delete process.env.WAKE_DEBOUNCE_MS;
+		delete process.env.CHECKIN_CLEANUP_MS;
 		// TELEGRAM_BOT_TOKEN is required (no default), must be set for loadConfig to succeed
 		process.env.TELEGRAM_BOT_TOKEN = 'test:fake-token';
 		// Phase 9: WAKE_SECRET is required (no default) — set a valid fixture so existing
@@ -57,6 +61,27 @@ describe('loadConfig', () => {
 		it('returns STT_PROVIDER=mock when not set', () => {
 			const config = loadConfig();
 			expect(config.STT_PROVIDER).toBe('mock');
+		});
+
+		it('returns NUDGE_TICK_INTERVAL_MS=30000 when not set', () => {
+			const config = loadConfig();
+			expect(config.NUDGE_TICK_INTERVAL_MS).toBe(30000);
+		});
+
+		it('returns WAKE_DEBOUNCE_MS=300000 when not set', () => {
+			const config = loadConfig();
+			expect(config.WAKE_DEBOUNCE_MS).toBe(300000);
+		});
+
+		it('returns CHECKIN_CLEANUP_MS=900000 when not set', () => {
+			const config = loadConfig();
+			expect(config.CHECKIN_CLEANUP_MS).toBe(900000);
+		});
+
+		it('coerces NUDGE_TICK_INTERVAL_MS string env var to number', () => {
+			process.env.NUDGE_TICK_INTERVAL_MS = '15000';
+			const config = loadConfig();
+			expect(config.NUDGE_TICK_INTERVAL_MS).toBe(15000);
 		});
 	});
 
@@ -103,6 +128,26 @@ describe('loadConfig', () => {
 
 		it('calls process.exit(1) when WHISPER_SERVER_URL is not a valid URL', () => {
 			process.env.WHISPER_SERVER_URL = 'not-a-url';
+			const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+				throw new Error('process.exit called');
+			});
+
+			expect(() => loadConfig()).toThrow('process.exit called');
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+
+		it('calls process.exit(1) when WAKE_SECRET is missing (WAKE_SECRET required)', () => {
+			delete process.env.WAKE_SECRET;
+			const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+				throw new Error('process.exit called');
+			});
+
+			expect(() => loadConfig()).toThrow('process.exit called');
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		});
+
+		it('calls process.exit(1) when WAKE_SECRET is shorter than 16 characters', () => {
+			process.env.WAKE_SECRET = 'short';
 			const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
 				throw new Error('process.exit called');
 			});
