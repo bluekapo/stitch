@@ -457,7 +457,7 @@ export class CheckInService {
 		const validDecisions = result.decisions.filter((d) => validTaskIds.has(d.taskId));
 
 		// ---------- PHASE 3: All DB writes (sync, INSIDE db.transaction) ----------
-		// NOTE: NO await inside this callback. taskService.postpone is sync.
+		// NOTE: NO await inside this callback. taskService.skip/postpone are sync.
 		this.db.transaction(() => {
 			for (const decision of validDecisions) {
 				switch (decision.action) {
@@ -465,13 +465,36 @@ export class CheckInService {
 						// Leave attached as-is. No-op.
 						break;
 					case 'postpone':
-						// Inline: increment postpone_count, set status pending, NULL the chunkId.
-						// Per Pitfall 6: postpone SHOULD null the chunkId — that's the "fully unattached" semantic.
+						// Phase 10 (D-22): write task_durations row + increment postpone_count
+						// via taskService.postpone (chronic-procrastination signal). The
+						// chunkId/branchName nulling is preserved as a follow-up update so the
+						// "fully unattached" buffer-end semantic (Pitfall 6) survives the refactor.
+						//
+						// taskService.postpone has an isEssential guard that THROWS — wrap in
+						// try/catch and fall back to the legacy status-only update so an
+						// LLM-decided essential postpone still completes (no row written in the
+						// fallback path; that is acceptable because the legacy code wrote no row
+						// either, so this is strictly additive behavior).
+						try {
+							this.taskService.postpone(decision.taskId);
+						} catch (err) {
+							this.logger?.warn(
+								{ err, taskId: decision.taskId },
+								'buffer-end postpone rejected (likely essential task); falling back to status-only update',
+							);
+							this.db
+								.update(tasks)
+								.set({
+									postponeCount: sql`postpone_count + 1`,
+									status: 'pending',
+									updatedAt: sql`(datetime('now'))`,
+								})
+								.where(eq(tasks.id, decision.taskId))
+								.run();
+						}
 						this.db
 							.update(tasks)
 							.set({
-								postponeCount: sql`postpone_count + 1`,
-								status: 'pending',
 								chunkId: null,
 								branchName: null,
 								updatedAt: sql`(datetime('now'))`,
@@ -480,14 +503,9 @@ export class CheckInService {
 							.run();
 						break;
 					case 'skip':
-						this.db
-							.update(tasks)
-							.set({
-								status: 'skipped',
-								updatedAt: sql`(datetime('now'))`,
-							})
-							.where(eq(tasks.id, decision.taskId))
-							.run();
+						// Phase 10 (D-22): taskService.skip writes the task_durations row
+						// (chronic-procrastination signal) and sets status='skipped'.
+						this.taskService.skip(decision.taskId);
 						break;
 					case 'move_to_next_chunk': {
 						// Find the next chunk by sortOrder + planId
