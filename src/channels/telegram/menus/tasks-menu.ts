@@ -1,4 +1,5 @@
 import { Menu } from '@grammyjs/menu';
+import type { CheckInService } from '../../../core/check-in-service.js';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { TaskService } from '../../../core/task-service.js';
 import type { TaskListItem } from '../../../types/task.js';
@@ -55,6 +56,7 @@ function buildTaskDetailMenu(
 	menuId: 'task-detail-from-chunk' | 'task-detail-from-all',
 	taskService: TaskService,
 	renderParentText: () => string,
+	checkInService?: CheckInService, // Phase 9 D-05.4 (Blocker 4)
 ): Menu<StitchContext> {
 	return new Menu<StitchContext>(menuId).dynamic((ctx, range) => {
 		const taskId = ctx.match;
@@ -134,6 +136,7 @@ function buildTaskDetailMenu(
 				.text({ text: 'Postpone', payload: String(task.id) }, async (ctx) => {
 					try {
 						taskService.postpone(task.id);
+						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
 						const detail = taskService.getTaskDetail(task.id);
 						if (detail) {
 							await safeEditMessageText(ctx, renderTaskDetailView(detail));
@@ -145,6 +148,7 @@ function buildTaskDetailMenu(
 				.text({ text: 'Complete', payload: String(task.id) }, async (ctx) => {
 					try {
 						taskService.update(task.id, { status: 'completed' });
+						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
 						// biome-ignore lint: back() required for dynamic submenu nav
 						ctx.menu.back();
 						await safeEditMessageText(ctx, renderParentText());
@@ -161,6 +165,7 @@ function buildTaskDetailMenu(
 				.text({ text: 'Complete', payload: String(task.id) }, async (ctx) => {
 					try {
 						taskService.update(task.id, { status: 'completed' });
+						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
 						// biome-ignore lint: back() required for dynamic submenu nav
 						ctx.menu.back();
 						await safeEditMessageText(ctx, renderParentText());
@@ -227,6 +232,7 @@ function buildTaskDetailMenu(
 export function createTasksMenu(
 	taskService: TaskService,
 	dailyPlanService?: DailyPlanService,
+	checkInService?: CheckInService, // Phase 9 D-05.4 (Blocker 4)
 ): {
 	tasksMenu: Menu<StitchContext>;
 	taskDetailMenu: Menu<StitchContext>;
@@ -235,14 +241,21 @@ export function createTasksMenu(
 } {
 	// Build task-detail menu instances. Each instance's back handler renders
 	// the appropriate parent view.
-	const taskDetailFromChunk = buildTaskDetailMenu('task-detail-from-chunk', taskService, () =>
-		renderCurrentChunkTasksView(
-			buildCurrentChunkTasksView(taskService, dailyPlanService, new Date()),
-		),
+	const taskDetailFromChunk = buildTaskDetailMenu(
+		'task-detail-from-chunk',
+		taskService,
+		() =>
+			renderCurrentChunkTasksView(
+				buildCurrentChunkTasksView(taskService, dailyPlanService, new Date()),
+			),
+		checkInService,
 	);
 
-	const taskDetailFromAll = buildTaskDetailMenu('task-detail-from-all', taskService, () =>
-		renderTasksView(taskService.list() as TaskListItem[]),
+	const taskDetailFromAll = buildTaskDetailMenu(
+		'task-detail-from-all',
+		taskService,
+		() => renderTasksView(taskService.list() as TaskListItem[]),
+		checkInService,
 	);
 
 	// Main scoped tasks menu (Screen 3).

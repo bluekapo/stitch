@@ -1,4 +1,5 @@
 import type { Bot } from 'grammy';
+import type { CheckInService } from '../../../core/check-in-service.js';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../../core/day-tree-service.js';
 import type { IntentClassifierService } from '../../../core/intent-classifier.js';
@@ -28,6 +29,9 @@ export interface VoiceHandlerOptions {
 	db?: StitchDb;
 	dailyPlanService?: DailyPlanService;
 	intentClassifierService?: IntentClassifierService;
+	// Phase 9 (D-05.4): passed through to routeTextInput so task mutations
+	// fire forceCheckIn('task_action').
+	checkInService?: CheckInService;
 }
 
 export function registerVoiceHandler(options: VoiceHandlerOptions): void {
@@ -41,6 +45,7 @@ export function registerVoiceHandler(options: VoiceHandlerOptions): void {
 		db,
 		dailyPlanService,
 		intentClassifierService,
+		checkInService,
 	} = options;
 
 	bot.on('message:voice', async (ctx) => {
@@ -94,6 +99,7 @@ export function registerVoiceHandler(options: VoiceHandlerOptions): void {
 			dayTreeService,
 			dailyPlanService,
 			intentClassifierService,
+			checkInService, // Phase 9 D-05.4: forced check-in on task mutations
 		});
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply);

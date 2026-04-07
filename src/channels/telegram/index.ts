@@ -48,6 +48,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		dailyPlanService,
 		sttProvider,
 		intentClassifierService,
+		checkInService,
 	} = options;
 
 	const bot = createBot({
@@ -56,7 +57,13 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 	});
 
 	const hub = new HubManager(bot.api);
-	const { hubMenu } = registerMenus(bot, taskService, dailyPlanService, dayTreeService);
+	const { hubMenu } = registerMenus(
+		bot,
+		taskService,
+		dailyPlanService,
+		dayTreeService,
+		checkInService,
+	);
 
 	// /start command: send or refresh hub
 	bot.command('start', async (ctx) => {
@@ -87,6 +94,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 			db,
 			dailyPlanService,
 			intentClassifierService,
+			checkInService, // Phase 9 D-05.4
 		});
 	}
 
@@ -102,6 +110,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 			dayTreeService,
 			dailyPlanService,
 			intentClassifierService,
+			checkInService, // Phase 9 D-05.4: forced check-in on task mutations
 		});
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply, { parse_mode: 'HTML' });

@@ -1,5 +1,6 @@
 import type { Menu } from '@grammyjs/menu';
 import type { Bot } from 'grammy';
+import type { CheckInService } from '../../../core/check-in-service.js';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../../core/day-tree-service.js';
 import type { TaskService } from '../../../core/task-service.js';
@@ -20,10 +21,15 @@ export function registerMenus(
 	taskService: TaskService,
 	dailyPlanService?: DailyPlanService,
 	dayTreeService?: DayTreeService,
+	checkInService?: CheckInService, // Phase 9 D-05.4 (Blocker 4)
 ): RegisteredMenus {
 	const hubMenu = createHubMenu(taskService, dailyPlanService);
 	const dayPlanMenu = createDayPlanMenu(dayTreeService, dailyPlanService);
-	const { tasksMenu, taskDetailMenu } = createTasksMenu(taskService, dailyPlanService);
+	const { tasksMenu, taskDetailMenu } = createTasksMenu(
+		taskService,
+		dailyPlanService,
+		checkInService,
+	);
 
 	// Register top-level submenus on parent before bot.use (Pitfall 6).
 	// Note: createTasksMenu already registers task-detail-from-chunk under

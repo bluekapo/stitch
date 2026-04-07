@@ -1,4 +1,5 @@
 import { addDays, format } from 'date-fns';
+import type { CheckInService } from '../../../core/check-in-service.js';
 import { resolveCurrentChunkAttachment } from '../../../core/current-chunk.js';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../../core/day-tree-service.js';
@@ -22,6 +23,10 @@ export interface TextRouterDeps {
 	dayTreeService?: DayTreeService;
 	dailyPlanService?: DailyPlanService;
 	intentClassifierService?: IntentClassifierService;
+	// Phase 9 (D-05.4): fire forced check-in after task mutations. Optional
+	// + catch-and-discard pattern so task actions never fail if the
+	// check-in service is missing or throws.
+	checkInService?: CheckInService;
 }
 
 /**
@@ -90,6 +95,7 @@ export async function routeTextInput(
 			if (!task) return { reply: 'Task not found.' };
 			if (task.timerStartedAt) taskService.stopTimer(id);
 			taskService.update(id, { status: 'completed' });
+			deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
 			return { reply: `Done: ${task.name} (#${task.id})` };
 		}
 
@@ -98,6 +104,7 @@ export async function routeTextInput(
 		if (postponeMatch) {
 			const id = Number(postponeMatch[1]);
 			taskService.postpone(id);
+			deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
 			const updated = taskService.getById(id);
 			return {
 				reply: `Postponed: ${updated!.name} (#${id}) -- ${updated!.postponeCount} times total`,
@@ -197,6 +204,7 @@ export async function routeTextInput(
 					chunkId,
 					branchName,
 				});
+				deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
 
 				let reply = classified.is_essential
 					? `Essential task created: ${task.name} (#${task.id})`
@@ -214,10 +222,12 @@ export async function routeTextInput(
 				if (classified.action === 'done') {
 					if (target.timerStartedAt) taskService.stopTimer(target.id);
 					taskService.update(target.id, { status: 'completed' });
+					deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
 					return { reply: `Done: ${target.name} (#${target.id})` };
 				}
 				if (classified.action === 'postpone') {
 					taskService.postpone(target.id);
+					deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
 					const updated = taskService.getById(target.id)!;
 					return {
 						reply: `Postponed: ${updated.name} (#${updated.id}) -- ${updated.postponeCount} times total`,
