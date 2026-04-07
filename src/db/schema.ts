@@ -88,6 +88,10 @@ export const dailyPlans = sqliteTable('daily_plans', {
 		enum: ['active', 'completed', 'cancelled'],
 	}).notNull().default('active'),
 	llmReasoning: text('llm_reasoning'),
+	// Phase 9 (D-19): wake state tracking — all nullable, idempotency leaves null until first wake call.
+	startedAt: text('started_at'),
+	lastWakeCallAt: text('last_wake_call_at'),
+	wakeFiredAt: text('wake_fired_at'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 
@@ -129,4 +133,18 @@ export const pendingCleanups = sqliteTable('pending_cleanups', {
 	userMsgId: integer('user_msg_id').notNull(),
 	replyMsgId: integer('reply_msg_id'),
 	deleteAfter: text('delete_after').notNull(),
+});
+
+// Phase 9 (D-10): check_ins table — separate from pending_cleanups (D-12 separation).
+// trigger_reason enum order is FIXED — do not reorder or add values without a migration.
+export const checkIns = sqliteTable('check_ins', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+	triggerReason: text('trigger_reason', {
+		enum: ['scheduled', 'wake', 'chunk_active', 'chunk_done', 'task_action', 'restart'],
+	}).notNull(),
+	shouldSpeak: integer('should_speak', { mode: 'boolean' }).notNull(),
+	messageText: text('message_text'),
+	nextCheckMinutes: integer('next_check_minutes'),
+	dayAnchor: text('day_anchor').notNull(),
 });
