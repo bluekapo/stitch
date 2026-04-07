@@ -1,4 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import type { Api } from 'grammy';
+import type { Logger } from 'pino';
 import type { StitchDb } from '../../db/index.js';
 import { pendingCleanups } from '../../db/schema.js';
 import type { StitchContext } from './types.js';
@@ -56,6 +58,84 @@ export function scheduleCleanup(
 			}
 		}
 	}, CLEANUP_DELAY_MS);
+}
+
+/**
+ * Phase 9 — Per-message cleanup with custom TTL for standalone bot messages.
+ *
+ * Use this when you call `bot.api.sendMessage(...)` directly (e.g., from
+ * CheckInService) and want the message to auto-delete after a custom TTL
+ * (D-11: 15 min for check-ins, vs the 60s default for user-reply pairs).
+ *
+ * Persists a pending_cleanups row with replyMsgId=null and userMsgId=msgId,
+ * so flushPendingCleanups picks it up on restart per the existing pattern.
+ *
+ * Per D-12: this only touches the pending_cleanups table for Telegram message
+ * scheduling. The check_ins table is owned by CheckInService and is NOT
+ * affected by this helper or by flushPendingCleanups.
+ */
+export function schedulePerMessageCleanup(
+	api: Api,
+	chatId: number,
+	msgId: number,
+	db: StitchDb,
+	ttlMs: number,
+	logger?: Logger,
+): void {
+	const deleteAfter = new Date(Date.now() + ttlMs).toISOString();
+
+	// Persist row (mirrors scheduleCleanup persistence so flushPendingCleanups
+	// can pick it up on restart). userMsgId = msgId, replyMsgId = null.
+	let rowId: number | undefined;
+	try {
+		const result = db
+			.insert(pendingCleanups)
+			.values({
+				chatId,
+				userMsgId: msgId,
+				replyMsgId: null,
+				deleteAfter,
+			})
+			.returning({ id: pendingCleanups.id })
+			.get();
+		rowId = result.id;
+	} catch {
+		// DB write failure should not block cleanup scheduling
+	}
+
+	setTimeout(async () => {
+		try {
+			await api.deleteMessage(chatId, msgId);
+		} catch (err) {
+			logger?.warn?.(
+				{ err, chatId, msgId },
+				'schedulePerMessageCleanup: deleteMessage failed',
+			);
+		}
+		// Remove the row after deletion attempt (matches scheduleCleanup pattern).
+		// Prefer rowId match; fall back to (chatId, msgId) compound match if rowId
+		// was lost to a DB write failure above.
+		if (rowId !== undefined) {
+			try {
+				db.delete(pendingCleanups).where(eq(pendingCleanups.id, rowId)).run();
+			} catch {
+				// Best-effort removal
+			}
+		} else {
+			try {
+				db.delete(pendingCleanups)
+					.where(
+						and(
+							eq(pendingCleanups.chatId, chatId),
+							eq(pendingCleanups.userMsgId, msgId),
+						),
+					)
+					.run();
+			} catch {
+				// Best-effort removal
+			}
+		}
+	}, ttlMs);
 }
 
 /**

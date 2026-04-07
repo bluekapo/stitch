@@ -1,7 +1,13 @@
+import type { Api } from 'grammy';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { scheduleCleanup, flushPendingCleanups, CLEANUP_DELAY_MS } from '../../../src/channels/telegram/cleanup.js';
-import { pendingCleanups } from '../../../src/db/schema.js';
+import {
+	CLEANUP_DELAY_MS,
+	flushPendingCleanups,
+	scheduleCleanup,
+	schedulePerMessageCleanup,
+} from '../../../src/channels/telegram/cleanup.js';
 import type { StitchContext } from '../../../src/channels/telegram/types.js';
+import { pendingCleanups } from '../../../src/db/schema.js';
 import { createTestDb } from '../../helpers/db.js';
 
 function createMockCtx() {
@@ -203,5 +209,86 @@ describe('flushPendingCleanups', () => {
 
 		expect(flushed).toBe(0);
 		expect(deleteMessage).not.toHaveBeenCalled();
+	});
+});
+
+describe('schedulePerMessageCleanup -- Phase 9 standalone bot messages', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('persists a pending_cleanups row with replyMsgId=null and ttlMs-based delete_after', () => {
+		const db = createTestDb();
+		const api = {
+			deleteMessage: vi.fn().mockResolvedValue(true),
+		} as unknown as Api;
+		const ttlMs = 900_000; // 15 min
+		const before = Date.now();
+
+		schedulePerMessageCleanup(api, 12345, 67890, db, ttlMs);
+
+		const rows = db.select().from(pendingCleanups).all();
+		expect(rows).toHaveLength(1);
+		expect(rows[0].chatId).toBe(12345);
+		expect(rows[0].userMsgId).toBe(67890);
+		expect(rows[0].replyMsgId).toBeNull();
+
+		const deleteAfter = new Date(rows[0].deleteAfter).getTime();
+		expect(deleteAfter).toBeGreaterThanOrEqual(before + ttlMs - 100);
+		expect(deleteAfter).toBeLessThanOrEqual(before + ttlMs + 1000);
+	});
+
+	it('ttlMs flow: setTimeout fires deleteMessage after ttlMs', async () => {
+		const db = createTestDb();
+		const api = {
+			deleteMessage: vi.fn().mockResolvedValue(true),
+		} as unknown as Api;
+
+		schedulePerMessageCleanup(api, 100, 200, db, 900_000);
+
+		// Before TTL: deleteMessage not called yet
+		expect(api.deleteMessage).not.toHaveBeenCalled();
+
+		await vi.advanceTimersByTimeAsync(900_000);
+
+		expect(api.deleteMessage).toHaveBeenCalledWith(100, 200);
+	});
+
+	it('ttlMs flow: removes the pending_cleanups row after deletion succeeds', async () => {
+		const db = createTestDb();
+		const api = {
+			deleteMessage: vi.fn().mockResolvedValue(true),
+		} as unknown as Api;
+
+		schedulePerMessageCleanup(api, 100, 200, db, 900_000);
+		expect(db.select().from(pendingCleanups).all()).toHaveLength(1);
+
+		await vi.advanceTimersByTimeAsync(900_000);
+		// microtask flush
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(db.select().from(pendingCleanups).all()).toHaveLength(0);
+	});
+
+	it('ttlMs differs from CLEANUP_DELAY_MS — verifies the helper is NOT hard-coded to 60s', async () => {
+		const db = createTestDb();
+		const api = {
+			deleteMessage: vi.fn().mockResolvedValue(true),
+		} as unknown as Api;
+
+		schedulePerMessageCleanup(api, 100, 200, db, 900_000);
+
+		// Advance past the 60s default — must NOT have fired yet
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(api.deleteMessage).not.toHaveBeenCalled();
+
+		// Advance the rest of the way to 15 min — must fire
+		await vi.advanceTimersByTimeAsync(900_000 - 60_000);
+		expect(api.deleteMessage).toHaveBeenCalledWith(100, 200);
 	});
 });
