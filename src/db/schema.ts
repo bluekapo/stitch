@@ -36,7 +36,23 @@ export const taskDurations = sqliteTable('task_durations', {
 	taskId: integer('task_id')
 		.notNull()
 		.references(() => tasks.id, { onDelete: 'cascade' }),
-	durationSeconds: integer('duration_seconds').notNull(),
+	// Phase 10 (D-22): nullable — skip/postpone rows carry no real duration.
+	durationSeconds: integer('duration_seconds'),
+	// Phase 10 (D-22): outcome discriminator. 'completed' = stopTimer wrote this row,
+	// 'skipped' = taskService.skip wrote this row, 'postponed' = taskService.postpone wrote this row.
+	outcome: text('outcome', {
+		enum: ['completed', 'skipped', 'postponed'],
+	})
+		.notNull()
+		.default('completed'),
+	// Phase 10 (D-21, D-23): prediction snapshot at write time — full range + confidence.
+	// Copied from the active chunk_tasks row by taskService.stopTimer/skip/postpone.
+	// Nullable because rows from before Phase 10 have no predictions.
+	predictedMinSeconds: integer('predicted_min_seconds'),
+	predictedMaxSeconds: integer('predicted_max_seconds'),
+	predictedConfidence: text('predicted_confidence', {
+		enum: ['low', 'medium', 'high'],
+	}),
 	startedAt: text('started_at').notNull(),
 	endedAt: text('ended_at').notNull().default(sql`(datetime('now'))`),
 });
@@ -125,6 +141,14 @@ export const chunkTasks = sqliteTable('chunk_tasks', {
 	status: text('status', {
 		enum: ['pending', 'active', 'completed', 'skipped'],
 	}).notNull().default('pending'),
+	// Phase 10 (D-05): live prediction storage. Populated by DailyPlanService.generatePlan
+	// after the prediction LLM call resolves. Nullable for D-06 fall-through cases
+	// (prediction LLM failed twice → null columns → display layer omits the suffix).
+	predictedMinSeconds: integer('predicted_min_seconds'),
+	predictedMaxSeconds: integer('predicted_max_seconds'),
+	predictedConfidence: text('predicted_confidence', {
+		enum: ['low', 'medium', 'high'],
+	}),
 });
 
 export const pendingCleanups = sqliteTable('pending_cleanups', {
