@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb } from '../helpers/db.js';
 import { TaskService } from '../../src/core/task-service.js';
-import { tasks } from '../../src/db/schema.js';
+import { chunkTasks, dailyPlans, planChunks, taskDurations, tasks } from '../../src/db/schema.js';
 import { createTaskSchema } from '../../src/types/task.js';
 import type { StitchDb } from '../../src/db/index.js';
 
@@ -465,6 +465,179 @@ describe('TaskService', () => {
 			db.update(tasks).set({ chunkId: 1 }).where(eq(tasks.id, attached.id)).run();
 
 			expect(service.list()).toHaveLength(3);
+		});
+	});
+
+	describe('Phase 10: prediction pairing (D-21, D-22, D-23)', () => {
+		/**
+		 * Helper: insert a plan + chunk + chunk_task row for a task, with prediction
+		 * columns filled in. Returns the chunk_tasks.id for assertion sanity.
+		 */
+		function attachTaskToChunkWithPrediction(
+			taskId: number,
+			min: number | null = 600,
+			max: number | null = 1800,
+			conf: 'low' | 'medium' | 'high' | null = 'medium',
+		) {
+			const [plan] = db
+				.insert(dailyPlans)
+				.values({
+					date: '2026-04-07',
+					dayTreeId: null,
+					blueprintId: null,
+					status: 'active',
+				})
+				.returning()
+				.all();
+
+			const [chunk] = db
+				.insert(planChunks)
+				.values({
+					planId: plan.id,
+					branchName: '',
+					label: 'test chunk',
+					startTime: '09:00',
+					endTime: '10:00',
+					isTaskSlot: true,
+					sortOrder: 0,
+					status: 'pending',
+				})
+				.returning()
+				.all();
+
+			const [ct] = db
+				.insert(chunkTasks)
+				.values({
+					chunkId: chunk.id,
+					taskId,
+					label: 'test task',
+					isLocked: false,
+					sortOrder: 0,
+					status: 'pending',
+					predictedMinSeconds: min,
+					predictedMaxSeconds: max,
+					predictedConfidence: conf,
+				})
+				.returning()
+				.all();
+
+			return ct.id;
+		}
+
+		it('stopTimer copies prediction from chunk_tasks (PLAN-07.11)', async () => {
+			const t = service.create({ name: 'Task A' });
+			attachTaskToChunkWithPrediction(t.id, 600, 1800, 'medium');
+
+			service.startTimer(t.id);
+			await new Promise((r) => setTimeout(r, 10));
+			service.stopTimer(t.id);
+
+			const row = db
+				.select()
+				.from(taskDurations)
+				.where(eq(taskDurations.taskId, t.id))
+				.get();
+			expect(row).toBeDefined();
+			expect(row?.outcome).toBe('completed');
+			expect(row?.predictedMinSeconds).toBe(600);
+			expect(row?.predictedMaxSeconds).toBe(1800);
+			expect(row?.predictedConfidence).toBe('medium');
+			expect(row?.durationSeconds).not.toBeNull();
+			expect(row?.durationSeconds ?? -1).toBeGreaterThanOrEqual(0);
+		});
+
+		it('skip writes task_durations row with null actual (PLAN-07.12)', () => {
+			const t = service.create({ name: 'Task B' });
+			attachTaskToChunkWithPrediction(t.id, 300, 900, 'low');
+
+			service.skip(t.id);
+
+			const row = db
+				.select()
+				.from(taskDurations)
+				.where(eq(taskDurations.taskId, t.id))
+				.get();
+			expect(row).toBeDefined();
+			expect(row?.outcome).toBe('skipped');
+			expect(row?.durationSeconds).toBeNull();
+			expect(row?.predictedMinSeconds).toBe(300);
+			expect(row?.predictedMaxSeconds).toBe(900);
+			expect(row?.predictedConfidence).toBe('low');
+
+			// Task status was also updated
+			const task = service.getById(t.id);
+			expect(task?.status).toBe('skipped');
+		});
+
+		it('postpone writes task_durations row with null actual (PLAN-07.13)', () => {
+			const t = service.create({ name: 'Task C' });
+			attachTaskToChunkWithPrediction(t.id, 1200, 2400, 'high');
+
+			service.postpone(t.id);
+
+			const row = db
+				.select()
+				.from(taskDurations)
+				.where(eq(taskDurations.taskId, t.id))
+				.get();
+			expect(row).toBeDefined();
+			expect(row?.outcome).toBe('postponed');
+			expect(row?.durationSeconds).toBeNull();
+			expect(row?.predictedMinSeconds).toBe(1200);
+			expect(row?.predictedMaxSeconds).toBe(2400);
+			expect(row?.predictedConfidence).toBe('high');
+
+			// Status reset to pending (postpone semantics), postponeCount incremented
+			const task = service.getById(t.id);
+			expect(task?.status).toBe('pending');
+			expect(task?.postponeCount).toBe(1);
+		});
+
+		it('skip/postpone on unattached task writes null predictions', () => {
+			const t1 = service.create({ name: 'Skip unattached' });
+			const t2 = service.create({ name: 'Postpone unattached' });
+
+			service.skip(t1.id);
+			service.postpone(t2.id);
+
+			const skipRow = db
+				.select()
+				.from(taskDurations)
+				.where(eq(taskDurations.taskId, t1.id))
+				.get();
+			const postponeRow = db
+				.select()
+				.from(taskDurations)
+				.where(eq(taskDurations.taskId, t2.id))
+				.get();
+
+			expect(skipRow?.outcome).toBe('skipped');
+			expect(skipRow?.predictedMinSeconds).toBeNull();
+			expect(skipRow?.predictedMaxSeconds).toBeNull();
+			expect(skipRow?.predictedConfidence).toBeNull();
+			expect(postponeRow?.outcome).toBe('postponed');
+			expect(postponeRow?.predictedMinSeconds).toBeNull();
+			expect(postponeRow?.predictedMaxSeconds).toBeNull();
+			expect(postponeRow?.predictedConfidence).toBeNull();
+		});
+
+		it('stopTimer on task with null predictions (D-06 fall-through) writes null prediction columns', async () => {
+			const t = service.create({ name: 'Null pred task' });
+			attachTaskToChunkWithPrediction(t.id, null, null, null);
+
+			service.startTimer(t.id);
+			await new Promise((r) => setTimeout(r, 10));
+			service.stopTimer(t.id);
+
+			const row = db
+				.select()
+				.from(taskDurations)
+				.where(eq(taskDurations.taskId, t.id))
+				.get();
+			expect(row?.outcome).toBe('completed');
+			expect(row?.predictedMinSeconds).toBeNull();
+			expect(row?.predictedMaxSeconds).toBeNull();
+			expect(row?.predictedConfidence).toBeNull();
 		});
 	});
 });
