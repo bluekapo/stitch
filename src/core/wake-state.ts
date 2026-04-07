@@ -124,21 +124,37 @@ export class WakeStateService {
 		}
 
 		// Step 3+4: day-lock check
+		// `dayLockReleased` is true when we just observed a stale wake_fired_at and
+		// reset the row. In that case the rest of this call should behave like the
+		// "first wake call of the day" — seed the snooze cycle and return snoozed.
+		// This is the spec from D-24: "after now passes day boundary, the day-lock
+		// releases (calling handleWakeCall again returns snoozed for the next cycle)".
+		let dayLockReleased = false;
 		if (row.wakeFiredAt) {
 			const tree = this.dayTreeService.getTree();
 			if (!this.isDayBoundaryCrossed(nowDate, tree, row.wakeFiredAt)) {
 				return { status: 'already_started', day_anchor: dayAnchor };
 			}
-			// Day boundary crossed — wake_fired_at is stale (from previous day cycle). Fall through to fire.
-			// This handles the late-night-second-wake case from D-24.
+			// Day boundary crossed — wake_fired_at is stale (from previous day cycle).
+			// Clear it AND last_wake_call_at so the rest of the function re-enters the
+			// "first call of the day" branch (seed snooze, return snoozed).
+			// The next call clear-of-debounce-window will fire fresh per D-19 layer 1.
 			this.logger?.info?.(
 				{ dayAnchor, wakeFiredAt: row.wakeFiredAt },
-				'WakeStateService: day boundary crossed since last fire; allowing fresh wake',
+				'WakeStateService: day boundary crossed since last fire; resetting snooze cycle',
 			);
+			this.db
+				.update(dailyPlans)
+				.set({ wakeFiredAt: null, lastWakeCallAt: null })
+				.where(eq(dailyPlans.date, dayAnchor))
+				.run();
+			dayLockReleased = true;
 		}
 
 		// Step 5: snooze debounce window
-		if (row.lastWakeCallAt) {
+		// After a day-lock release we treat last_wake_call_at as null regardless of
+		// what was on the row, so the new day's first call seeds a fresh window.
+		if (!dayLockReleased && row.lastWakeCallAt) {
 			const lastCallMs = new Date(row.lastWakeCallAt).getTime();
 			const elapsed = nowDate.getTime() - lastCallMs;
 			if (elapsed < this.debounceMs) {
