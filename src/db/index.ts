@@ -51,7 +51,11 @@ function migrateSchema(sqlite: Database.Database) {
 		CREATE TABLE IF NOT EXISTS task_durations (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-			duration_seconds INTEGER NOT NULL,
+			duration_seconds INTEGER,
+			outcome TEXT NOT NULL DEFAULT 'completed',
+			predicted_min_seconds INTEGER,
+			predicted_max_seconds INTEGER,
+			predicted_confidence TEXT,
 			started_at TEXT NOT NULL,
 			ended_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
@@ -106,6 +110,77 @@ function migrateSchema(sqlite: Database.Database) {
 			`);
 		}
 	}
+
+	// ============================================================================
+	// Phase 10: task_durations prediction columns + outcome discriminator +
+	// drop NOT NULL on duration_seconds. MUST be fully idempotent. See
+	// .planning/phases/10-prediction-feedback-loop/10-RESEARCH.md §"Schema
+	// Migration Strategy" for the canonical procedure.
+	// ============================================================================
+
+	// Step 1: idempotent column additions (both ADD COLUMN operations are safe
+	// on a legacy DB regardless of whether duration_seconds is still NOT NULL).
+	const tdCols = new Set(
+		(sqlite.pragma('table_info(task_durations)') as { name: string }[]).map((c) => c.name),
+	);
+	const tdAdditions: [string, string][] = [
+		['outcome', `TEXT NOT NULL DEFAULT 'completed'`],
+		['predicted_min_seconds', 'INTEGER'],
+		['predicted_max_seconds', 'INTEGER'],
+		['predicted_confidence', 'TEXT'],
+	];
+	for (const [col, def] of tdAdditions) {
+		if (!tdCols.has(col)) {
+			sqlite.exec(`ALTER TABLE task_durations ADD COLUMN ${col} ${def}`);
+		}
+	}
+
+	// Step 2: drop NOT NULL on duration_seconds via the SQLite 12-step table
+	// recreation procedure. GATED on the notnull flag so running twice is a no-op
+	// (Pitfall 3). Reference: https://www.sqlite.org/lang_altertable.html
+	const tdColsFull = sqlite.pragma('table_info(task_durations)') as {
+		name: string;
+		notnull: number;
+	}[];
+	const durationCol = tdColsFull.find((c) => c.name === 'duration_seconds');
+	if (durationCol && durationCol.notnull === 1) {
+		sqlite.exec('PRAGMA foreign_keys=OFF');
+		sqlite.exec('BEGIN TRANSACTION');
+		try {
+			sqlite.exec(`
+				CREATE TABLE task_durations_new (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+					duration_seconds INTEGER,
+					outcome TEXT NOT NULL DEFAULT 'completed',
+					predicted_min_seconds INTEGER,
+					predicted_max_seconds INTEGER,
+					predicted_confidence TEXT,
+					started_at TEXT NOT NULL,
+					ended_at TEXT NOT NULL DEFAULT (datetime('now'))
+				);
+			`);
+			sqlite.exec(`
+				INSERT INTO task_durations_new
+					(id, task_id, duration_seconds, outcome,
+					 predicted_min_seconds, predicted_max_seconds, predicted_confidence,
+					 started_at, ended_at)
+				SELECT
+					id, task_id, duration_seconds, outcome,
+					predicted_min_seconds, predicted_max_seconds, predicted_confidence,
+					started_at, ended_at
+				FROM task_durations;
+			`);
+			sqlite.exec('DROP TABLE task_durations');
+			sqlite.exec('ALTER TABLE task_durations_new RENAME TO task_durations');
+			sqlite.exec('COMMIT');
+		} catch (err) {
+			sqlite.exec('ROLLBACK');
+			throw err;
+		} finally {
+			sqlite.exec('PRAGMA foreign_keys=ON');
+		}
+	}
 }
 
 /** Create or upgrade daily plan tables. */
@@ -148,7 +223,10 @@ function migrateDailyPlanSchema(sqlite: Database.Database) {
 				label TEXT NOT NULL,
 				is_locked INTEGER NOT NULL DEFAULT 0,
 				sort_order INTEGER NOT NULL DEFAULT 0,
-				status TEXT NOT NULL DEFAULT 'pending'
+				status TEXT NOT NULL DEFAULT 'pending',
+				predicted_min_seconds INTEGER,
+				predicted_max_seconds INTEGER,
+				predicted_confidence TEXT
 			);
 		`);
 		return;
@@ -217,9 +295,28 @@ function migrateDailyPlanSchema(sqlite: Database.Database) {
 				label TEXT NOT NULL,
 				is_locked INTEGER NOT NULL DEFAULT 0,
 				sort_order INTEGER NOT NULL DEFAULT 0,
-				status TEXT NOT NULL DEFAULT 'pending'
+				status TEXT NOT NULL DEFAULT 'pending',
+				predicted_min_seconds INTEGER,
+				predicted_max_seconds INTEGER,
+				predicted_confidence TEXT
 			);
 		`);
+	}
+
+	// Phase 10: chunk_tasks prediction columns — idempotent ALTER ADD COLUMN.
+	// No constraint changes (all three columns are nullable), so plain ALTER works.
+	const chunkTasksCols = new Set(
+		(sqlite.pragma('table_info(chunk_tasks)') as { name: string }[]).map((c) => c.name),
+	);
+	const ctAdditions: [string, string][] = [
+		['predicted_min_seconds', 'INTEGER'],
+		['predicted_max_seconds', 'INTEGER'],
+		['predicted_confidence', 'TEXT'],
+	];
+	for (const [col, def] of ctAdditions) {
+		if (!chunkTasksCols.has(col)) {
+			sqlite.exec(`ALTER TABLE chunk_tasks ADD COLUMN ${col} ${def}`);
+		}
 	}
 
 	// PHASE 9 ADDITIONS (D-19 wake state tracking).
