@@ -1,5 +1,6 @@
 import type { Bot } from 'grammy';
 import type { AppConfig } from '../../config.js';
+import type { CheckInService } from '../../core/check-in-service.js';
 import type { DailyPlanService } from '../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../core/day-tree-service.js';
 import type { IntentClassifierService } from '../../core/intent-classifier.js';
@@ -31,6 +32,10 @@ export interface TelegramSetupOptions {
 	dailyPlanService?: DailyPlanService;
 	sttProvider?: SttProvider;
 	intentClassifierService?: IntentClassifierService;
+	// Phase 9 (D-05.4): handlers fire forceCheckIn('task_action') after task
+	// mutations. Optional so existing tests and non-check-in-service paths
+	// continue to work.
+	checkInService?: CheckInService;
 }
 
 export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {

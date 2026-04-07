@@ -3,9 +3,12 @@ import Fastify from 'fastify';
 import type { Bot } from 'grammy';
 import { setupTelegramBot } from './channels/telegram/index.js';
 import { flushPendingCleanups } from './channels/telegram/cleanup.js';
+import type { HubManager } from './channels/telegram/hub.js';
+import { CheckInService } from './core/check-in-service.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
 import { DayTreeService } from './core/day-tree-service.js';
 import { IntentClassifierService } from './core/intent-classifier.js';
+import { WakeStateService } from './core/wake-state.js';
 import type { StitchContext } from './channels/telegram/types.js';
 import { type AppConfig, loadConfig } from './config.js';
 import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
@@ -15,6 +18,7 @@ import { createLlmProvider, createSttProvider } from './providers/index.js';
 import type { LlmProvider } from './providers/llm.js';
 import type { SttProvider } from './providers/stt.js';
 import { healthRoutes } from './routes/health.js';
+import { wakeRoutes } from './routes/wake.js';
 
 export interface AppOptions {
 	config?: AppConfig;
@@ -70,6 +74,27 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	);
 	app.decorate('intentClassifierService', intentClassifierService);
 
+	// Phase 9 (PLAN-05/06): CheckInService -- long-running ticker for chunk
+	// lifecycle + LLM oracle. Constructed BEFORE the Telegram bot because the
+	// bot wiring below threads checkInService into handlers for D-05.4. Bot
+	// + HubManager are late-bound via setBot/setHubManager after setupTelegramBot.
+	const checkInService = new CheckInService({
+		llmProvider,
+		dayTreeService,
+		taskService,
+		dailyPlanService,
+		db,
+		userChatId: config.TELEGRAM_ALLOWED_USER_ID,
+		tickIntervalMs: config.NUDGE_TICK_INTERVAL_MS,
+		cleanupTtlMs: config.CHECKIN_CLEANUP_MS,
+		// Fastify's logger is structurally compatible with pino's Logger interface
+		// but TypeScript considers them distinct (FastifyBaseLogger vs Logger).
+		// Cast is safe: both expose .info/.warn/.error/.debug/.trace with the
+		// same call signatures, which is all CheckInService/WakeStateService use.
+		logger: app.log as unknown as import('pino').Logger,
+	});
+	app.decorate('checkInService', checkInService);
+
 	// Recurrence scheduler
 	const scheduler = new RecurrenceScheduler(taskService, config.RECURRENCE_CRON_TIME);
 	app.decorate('scheduler', scheduler);
@@ -87,12 +112,38 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 			dailyPlanService,
 			sttProvider,
 			intentClassifierService,
+			checkInService, // Phase 9 (D-05.4): handlers fire forceCheckIn('task_action')
 		});
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);
+
+		// Phase 9: late-bind bot + hub to checkInService (constructor ran before
+		// the Telegram bot existed). See CheckInService.setBot/setHubManager.
+		checkInService.setBot(bot);
+		checkInService.setHubManager(hub);
 	}
 
+	// Phase 9 (CHAN-02/03): WakeStateService -- request-driven, started by the
+	// POST /wake/:secret route. Reads hub from the decorator if available
+	// (undefined when TELEGRAM_BOT_TOKEN is unset, e.g., in tests).
+	const hubRef = (app as unknown as { hub?: HubManager }).hub;
+	const wakeStateService = new WakeStateService({
+		db,
+		dailyPlanService,
+		dayTreeService,
+		checkInService,
+		hubManager: hubRef,
+		debounceMs: config.WAKE_DEBOUNCE_MS,
+		// Fastify's logger is structurally compatible with pino's Logger interface
+		// but TypeScript considers them distinct (FastifyBaseLogger vs Logger).
+		// Cast is safe: both expose .info/.warn/.error/.debug/.trace with the
+		// same call signatures, which is all CheckInService/WakeStateService use.
+		logger: app.log as unknown as import('pino').Logger,
+	});
+	app.decorate('wakeStateService', wakeStateService);
+
 	app.register(healthRoutes);
+	app.register(wakeRoutes); // Phase 9 CHAN-02
 
 	// Health check on startup -- log warning if providers unavailable but do NOT crash
 	app.addHook('onReady', async () => {
@@ -144,11 +195,30 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		} catch (err) {
 			app.log.warn({ err }, 'Failed to generate daily plan on startup');
 		}
+
+		// Phase 9 (PLAN-05/06): start the CheckInService ticker.
+		// start() is async and AWAITS the D-21 restart safety check-in internally
+		// (see check-in-service.ts Plan 03 Task 2). Do NOT add a separate restart
+		// safety block here -- it would double-fire.
+		try {
+			await checkInService.start();
+			app.log.info(
+				`CheckInService started (tick interval: ${config.NUDGE_TICK_INTERVAL_MS}ms)`,
+			);
+		} catch (err) {
+			app.log.warn({ err }, 'CheckInService start failed');
+		}
 	});
 
 	// Stop scheduler on app close
 	app.addHook('onClose', async () => {
 		scheduler.stop();
+		// Phase 9: stop the CheckInService ticker
+		try {
+			await checkInService.stop();
+		} catch (err) {
+			app.log.warn({ err }, 'CheckInService stop failed');
+		}
 	});
 
 	return app;

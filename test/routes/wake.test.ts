@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { wakeRoutes } from '../../src/routes/wake.js';
 import { buildTestApp } from '../helpers/app.js';
 
 /**
@@ -8,13 +7,13 @@ import { buildTestApp } from '../helpers/app.js';
  *
  * Strategy: build a FastifyInstance via buildTestApp (which uses the test
  * config with WAKE_SECRET = 'test-wake-secret-do-not-use-in-prod-12345'),
- * register wakeRoutes and decorate a mock WakeStateService BEFORE app.ready()
- * so the route plugin can see the decorator at registration time, then use
- * Fastify's `inject` API for in-process HTTP-shaped tests.
+ * replace the wakeStateService decorator with a mock BEFORE app.ready() so
+ * the route plugin sees the mock at registration time, then use Fastify's
+ * `inject` API for in-process HTTP-shaped tests.
  *
- * Task 1 is independent of Task 2 (app.ts wiring) — we register wakeRoutes
- * here so these tests exercise the actual route plugin in isolation. Task 2's
- * acceptance criteria call for wakeRoutes to also be registered inside buildApp.
+ * buildApp (Task 2) constructs WakeStateService and registers wakeRoutes
+ * automatically. Tests swap the decorator value directly — no extra
+ * register() call and no decorate() call (both would conflict with buildApp).
  */
 
 const TEST_SECRET = 'test-wake-secret-do-not-use-in-prod-12345';
@@ -24,21 +23,10 @@ interface MockWakeStateService {
 }
 
 function attachMockWake(app: FastifyInstance, mock: MockWakeStateService): void {
-	// Decorate BEFORE register(wakeRoutes) so the route plugin sees the
-	// wakeStateService decorator when it reads from the fastify instance.
-	try {
-		app.decorate('wakeStateService', mock);
-	} catch {
-		// If buildApp already decorated wakeStateService (Task 2 landed), replace it.
-		(app as unknown as { wakeStateService: MockWakeStateService }).wakeStateService = mock;
-	}
-	// Register wakeRoutes if buildApp hasn't (Task 1 path). Task 2 will register
-	// inside buildApp; this ensures Task 1 tests work in isolation.
-	try {
-		app.register(wakeRoutes);
-	} catch {
-		// already registered by buildApp (Task 2 path) — no-op
-	}
+	// buildApp already decorated wakeStateService -- replace the value in place.
+	// Direct property write bypasses Fastify's decorator immutability check
+	// (decorators are accessed via property lookup on the instance).
+	(app as unknown as { wakeStateService: MockWakeStateService }).wakeStateService = mock;
 }
 
 describe('POST /wake/:secret -- CHAN-02 secret + body', () => {
