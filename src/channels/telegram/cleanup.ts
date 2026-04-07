@@ -24,12 +24,16 @@ export function scheduleCleanup(
 	let rowId: number | undefined;
 	if (db) {
 		try {
-			const result = db.insert(pendingCleanups).values({
-				chatId,
-				userMsgId,
-				replyMsgId: replyMsgId ?? null,
-				deleteAfter,
-			}).returning({ id: pendingCleanups.id }).get();
+			const result = db
+				.insert(pendingCleanups)
+				.values({
+					chatId,
+					userMsgId,
+					replyMsgId: replyMsgId ?? null,
+					deleteAfter,
+				})
+				.returning({ id: pendingCleanups.id })
+				.get();
 			rowId = result.id;
 		} catch {
 			// DB write failure should not block cleanup scheduling
@@ -107,10 +111,7 @@ export function schedulePerMessageCleanup(
 		try {
 			await api.deleteMessage(chatId, msgId);
 		} catch (err) {
-			logger?.warn?.(
-				{ err, chatId, msgId },
-				'schedulePerMessageCleanup: deleteMessage failed',
-			);
+			logger?.warn?.({ err, chatId, msgId }, 'schedulePerMessageCleanup: deleteMessage failed');
 		}
 		// Remove the row after deletion attempt (matches scheduleCleanup pattern).
 		// Prefer rowId match; fall back to (chatId, msgId) compound match if rowId
@@ -124,12 +125,7 @@ export function schedulePerMessageCleanup(
 		} else {
 			try {
 				db.delete(pendingCleanups)
-					.where(
-						and(
-							eq(pendingCleanups.chatId, chatId),
-							eq(pendingCleanups.userMsgId, msgId),
-						),
-					)
+					.where(and(eq(pendingCleanups.chatId, chatId), eq(pendingCleanups.userMsgId, msgId)))
 					.run();
 			} catch {
 				// Best-effort removal

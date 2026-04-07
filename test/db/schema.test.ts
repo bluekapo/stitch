@@ -316,3 +316,129 @@ describe('tasks table -- Phase 08.3 chunk_id + branch_name schema additions', ()
 		expect(after.chunk_id).toBeNull();
 	});
 });
+
+describe('check_ins table -- Phase 9 migration safety', () => {
+	type TableInfoRow = { name: string; type: string; notnull: number };
+
+	function getColumns(sqlite: Database.Database, table: string): Map<string, TableInfoRow> {
+		const rows = sqlite.pragma(`table_info(${table})`) as TableInfoRow[];
+		return new Map(rows.map((r) => [r.name, r]));
+	}
+
+	it('check_ins table exists on fresh DB via createTestDb (check_ins fresh)', () => {
+		const drizzleDb = createTestDb();
+		// biome-ignore lint/suspicious/noExplicitAny: pragma inspection
+		const sqlite = (drizzleDb as any).$client as Database.Database;
+		const cols = getColumns(sqlite, 'check_ins');
+		expect(cols.has('id')).toBe(true);
+		expect(cols.has('created_at')).toBe(true);
+		expect(cols.has('trigger_reason')).toBe(true);
+		expect(cols.has('should_speak')).toBe(true);
+		expect(cols.has('message_text')).toBe(true);
+		expect(cols.has('next_check_minutes')).toBe(true);
+		expect(cols.has('day_anchor')).toBe(true);
+	});
+
+	it('check_ins table exists on fresh DB via createDb :memory: (check_ins fresh via createDb)', () => {
+		const drizzleDb = createDb(':memory:');
+		// biome-ignore lint/suspicious/noExplicitAny: pragma inspection
+		const sqlite = (drizzleDb as any).$client as Database.Database;
+		const cols = getColumns(sqlite, 'check_ins');
+		expect(cols.has('day_anchor')).toBe(true);
+	});
+
+	it('idx_check_ins_day_anchor index exists after createDb', () => {
+		const drizzleDb = createDb(':memory:');
+		// biome-ignore lint/suspicious/noExplicitAny: pragma inspection
+		const sqlite = (drizzleDb as any).$client as Database.Database;
+		const idx = sqlite
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type='index' AND name='idx_check_ins_day_anchor'",
+			)
+			.all();
+		expect(idx).toHaveLength(1);
+	});
+
+	it('check_ins ALTER -- existing DB without check_ins gets the table on second createDb', () => {
+		const tmpPath = `${process.env.TEMP || '/tmp'}/stitch-test-checkins-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+
+		// First open: runs migration on fresh DB (creates check_ins)
+		const db1 = createDb(tmpPath);
+		// biome-ignore lint/suspicious/noExplicitAny: pragma
+		const sqlite1 = (db1 as any).$client as Database.Database;
+		sqlite1.exec(`DROP TABLE check_ins`); // simulate older DB without the table
+		sqlite1.close();
+
+		// Second open: migration must re-create check_ins idempotently
+		const db2 = createDb(tmpPath);
+		// biome-ignore lint/suspicious/noExplicitAny: pragma
+		const sqlite2 = (db2 as any).$client as Database.Database;
+		const cols = getColumns(sqlite2, 'check_ins');
+		expect(cols.has('day_anchor')).toBe(true);
+		sqlite2.close();
+
+		try {
+			require('node:fs').unlinkSync(tmpPath);
+		} catch {
+			/* ignore */
+		}
+	});
+
+	it('dailyPlans wake columns -- existing DB without started_at/last_wake_call_at/wake_fired_at gets them on createDb', () => {
+		const tmpPath = `${process.env.TEMP || '/tmp'}/stitch-test-dpwake-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+
+		// Pre-create OLD-schema daily_plans WITHOUT the wake columns
+		const seed = new Database(tmpPath);
+		seed.pragma('journal_mode = WAL');
+		seed.exec(`
+			CREATE TABLE daily_plans (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				date TEXT NOT NULL UNIQUE,
+				blueprint_id INTEGER,
+				day_tree_id INTEGER,
+				status TEXT NOT NULL DEFAULT 'active',
+				llm_reasoning TEXT,
+				created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+		`);
+		seed.close();
+
+		// Open via createDb -- triggers migrateDailyPlanSchema ALTER path
+		const db = createDb(tmpPath);
+		// biome-ignore lint/suspicious/noExplicitAny: pragma
+		const sqlite = (db as any).$client as Database.Database;
+		const cols = getColumns(sqlite, 'daily_plans');
+		expect(cols.has('started_at')).toBe(true);
+		expect(cols.has('last_wake_call_at')).toBe(true);
+		expect(cols.has('wake_fired_at')).toBe(true);
+		sqlite.close();
+
+		try {
+			require('node:fs').unlinkSync(tmpPath);
+		} catch {
+			/* ignore */
+		}
+	});
+
+	it('check_ins.trigger_reason accepts the 6 enum values from D-10', () => {
+		const drizzleDb = createDb(':memory:');
+		// biome-ignore lint/suspicious/noExplicitAny: direct sqlite write
+		const sqlite = (drizzleDb as any).$client as Database.Database;
+		const insertStmt = sqlite.prepare(
+			`INSERT INTO check_ins (trigger_reason, should_speak, day_anchor) VALUES (?, 0, '2026-04-07')`,
+		);
+		// All 6 enum values must insert without error
+		for (const reason of [
+			'scheduled',
+			'wake',
+			'chunk_active',
+			'chunk_done',
+			'task_action',
+			'restart',
+		]) {
+			expect(() => insertStmt.run(reason)).not.toThrow();
+		}
+		const rows = sqlite.prepare('SELECT trigger_reason FROM check_ins').all();
+		expect(rows).toHaveLength(6);
+	});
+});

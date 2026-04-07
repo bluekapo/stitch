@@ -44,9 +44,7 @@ export const CheckInResponseSchema = z.object({
 		.int()
 		.min(1)
 		.max(360)
-		.describe(
-			'Minutes until the next scheduled check-in. 30 is a sensible default per D-03.',
-		),
+		.describe('Minutes until the next scheduled check-in. 30 is a sensible default per D-03.'),
 	reasoning: z
 		.string()
 		.optional()

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import {
-	BufferEndDispositionSchema,
-	CheckInResponseSchema,
-} from '../../src/schemas/check-in.js';
+import { BufferEndDispositionSchema, CheckInResponseSchema } from '../../src/schemas/check-in.js';
 
 describe('CheckInResponseSchema parses', () => {
 	it('should_speak=true with message and 30min cadence', () => {

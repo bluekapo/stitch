@@ -162,6 +162,30 @@ function migrateDailyPlanSchema(sqlite: Database.Database) {
 		sqlite.exec('ALTER TABLE daily_plans ADD COLUMN day_tree_id INTEGER');
 	}
 
+	// Phase 9 fix: legacy DBs may have daily_plans WITHOUT plan_chunks (predates 08.x).
+	// Create plan_chunks here (matching the fresh-DB definition) before any plan_chunks
+	// ALTER below — ALTER on a non-existent table throws.
+	const planChunksExists = sqlite
+		.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plan_chunks'")
+		.get();
+	if (!planChunksExists) {
+		sqlite.exec(`
+			CREATE TABLE plan_chunks (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				plan_id INTEGER NOT NULL REFERENCES daily_plans(id) ON DELETE CASCADE,
+				task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+				branch_name TEXT NOT NULL DEFAULT '',
+				label TEXT NOT NULL,
+				start_time TEXT NOT NULL,
+				end_time TEXT NOT NULL,
+				is_locked INTEGER NOT NULL DEFAULT 0,
+				is_task_slot INTEGER NOT NULL DEFAULT 1,
+				sort_order INTEGER NOT NULL DEFAULT 0,
+				status TEXT NOT NULL DEFAULT 'pending'
+			);
+		`);
+	}
+
 	const chunkCols = new Set(
 		(sqlite.pragma('table_info(plan_chunks)') as { name: string }[]).map((c) => c.name),
 	);

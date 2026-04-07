@@ -68,6 +68,9 @@ export function createTestDb() {
 			day_tree_id INTEGER REFERENCES day_trees(id),
 			status TEXT NOT NULL DEFAULT 'active',
 			llm_reasoning TEXT,
+			started_at TEXT,
+			last_wake_call_at TEXT,
+			wake_fired_at TEXT,
 			created_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
 		CREATE TABLE IF NOT EXISTS plan_chunks (
@@ -99,6 +102,16 @@ export function createTestDb() {
 			reply_msg_id INTEGER,
 			delete_after TEXT NOT NULL
 		);
+		CREATE TABLE IF NOT EXISTS check_ins (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			trigger_reason TEXT NOT NULL,
+			should_speak INTEGER NOT NULL,
+			message_text TEXT,
+			next_check_minutes INTEGER,
+			day_anchor TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_check_ins_day_anchor ON check_ins(day_anchor);
 	`);
 	return drizzle(sqlite, { schema });
 }

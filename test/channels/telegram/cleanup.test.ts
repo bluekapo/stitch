@@ -118,12 +118,14 @@ describe('flushPendingCleanups', () => {
 		const deleteMessage = vi.fn().mockResolvedValue(true);
 
 		// Insert a row with a past timestamp
-		db.insert(pendingCleanups).values({
-			chatId: 100,
-			userMsgId: 1,
-			replyMsgId: 2,
-			deleteAfter: new Date(Date.now() - 10_000).toISOString(),
-		}).run();
+		db.insert(pendingCleanups)
+			.values({
+				chatId: 100,
+				userMsgId: 1,
+				replyMsgId: 2,
+				deleteAfter: new Date(Date.now() - 10_000).toISOString(),
+			})
+			.run();
 
 		const flushed = await flushPendingCleanups(db, { deleteMessage });
 
@@ -141,12 +143,14 @@ describe('flushPendingCleanups', () => {
 		const db = createTestDb();
 		const deleteMessage = vi.fn().mockResolvedValue(true);
 
-		db.insert(pendingCleanups).values({
-			chatId: 100,
-			userMsgId: 1,
-			replyMsgId: 2,
-			deleteAfter: new Date(Date.now() + 60_000).toISOString(),
-		}).run();
+		db.insert(pendingCleanups)
+			.values({
+				chatId: 100,
+				userMsgId: 1,
+				replyMsgId: 2,
+				deleteAfter: new Date(Date.now() + 60_000).toISOString(),
+			})
+			.run();
 
 		const flushed = await flushPendingCleanups(db, { deleteMessage });
 
@@ -161,12 +165,14 @@ describe('flushPendingCleanups', () => {
 		const db = createTestDb();
 		const deleteMessage = vi.fn().mockResolvedValue(true);
 
-		db.insert(pendingCleanups).values({
-			chatId: 100,
-			userMsgId: 5,
-			replyMsgId: null,
-			deleteAfter: new Date(Date.now() - 1000).toISOString(),
-		}).run();
+		db.insert(pendingCleanups)
+			.values({
+				chatId: 100,
+				userMsgId: 5,
+				replyMsgId: null,
+				deleteAfter: new Date(Date.now() - 1000).toISOString(),
+			})
+			.run();
 
 		await flushPendingCleanups(db, { deleteMessage });
 
@@ -176,22 +182,27 @@ describe('flushPendingCleanups', () => {
 
 	it('continues processing remaining rows when one deleteMessage fails', async () => {
 		const db = createTestDb();
-		const deleteMessage = vi.fn()
+		const deleteMessage = vi
+			.fn()
 			.mockRejectedValueOnce(new Error('forbidden'))
 			.mockResolvedValue(true);
 
-		db.insert(pendingCleanups).values({
-			chatId: 100,
-			userMsgId: 1,
-			replyMsgId: null,
-			deleteAfter: new Date(Date.now() - 1000).toISOString(),
-		}).run();
-		db.insert(pendingCleanups).values({
-			chatId: 200,
-			userMsgId: 3,
-			replyMsgId: null,
-			deleteAfter: new Date(Date.now() - 1000).toISOString(),
-		}).run();
+		db.insert(pendingCleanups)
+			.values({
+				chatId: 100,
+				userMsgId: 1,
+				replyMsgId: null,
+				deleteAfter: new Date(Date.now() - 1000).toISOString(),
+			})
+			.run();
+		db.insert(pendingCleanups)
+			.values({
+				chatId: 200,
+				userMsgId: 3,
+				replyMsgId: null,
+				deleteAfter: new Date(Date.now() - 1000).toISOString(),
+			})
+			.run();
 
 		const flushed = await flushPendingCleanups(db, { deleteMessage });
 
