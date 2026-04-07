@@ -236,6 +236,39 @@ describe('CheckInService -- memory (PLAN-06, D-10)', () => {
 		expect(userMsg?.content).toContain('Halfway through morning duties.');
 		expect(userMsg?.content).toContain("Today's prior check-ins");
 	});
+
+	it('memory laundry -- a prior check-in mentioning laundry has been pending is threaded through to the next oracle call', async () => {
+		// D-10 acceptance literal: the plan's success criteria explicitly names
+		// "laundry has been pending" as the canonical memory payload — it must
+		// survive the round-trip from check_ins.message_text into the next
+		// runOracle user prompt verbatim so the oracle can reason about it.
+		const { service, llm, db } = makeService({
+			now: () => new Date('2026-04-07T18:00:00Z'),
+		});
+		db.insert(checkIns)
+			.values({
+				triggerReason: 'scheduled',
+				shouldSpeak: true,
+				messageText: 'Sir, laundry has been pending for two hours now.',
+				nextCheckMinutes: 30,
+				dayAnchor: '2026-04-07',
+				createdAt: '2026-04-07 16:00:00',
+			})
+			.run();
+
+		const completeSpy = vi.spyOn(llm, 'complete').mockResolvedValue({
+			should_speak: false,
+			message: null,
+			next_check_minutes: 30,
+		});
+		await service.forceCheckIn('scheduled');
+
+		const call = completeSpy.mock.calls[0][0];
+		const userMsg = call.messages.find((m: { role: string }) => m.role === 'user');
+		expect(userMsg).toBeDefined();
+		// Literal from acceptance criteria — do not paraphrase.
+		expect(userMsg?.content).toContain('laundry has been pending');
+	});
 });
 
 describe('CheckInService -- restart (CHAN-03, D-21)', () => {
