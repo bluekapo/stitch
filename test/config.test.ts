@@ -17,6 +17,10 @@ describe('loadConfig', () => {
 		delete process.env.TELEGRAM_ALLOWED_USER_ID;
 		// TELEGRAM_BOT_TOKEN is required (no default), must be set for loadConfig to succeed
 		process.env.TELEGRAM_BOT_TOKEN = 'test:fake-token';
+		// Phase 9: WAKE_SECRET is required (no default) — set a valid fixture so existing
+		// tests still load. Validation tests for missing/short secret live in the
+		// validation describe block and override this per-test.
+		process.env.WAKE_SECRET = 'test-wake-secret-fixture-1234567890';
 	});
 
 	afterEach(() => {

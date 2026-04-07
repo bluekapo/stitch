@@ -18,6 +18,13 @@ const testConfig: AppConfig = {
 	STT_PROVIDER: 'mock' as const,
 	TELEGRAM_BOT_TOKEN: '',
 	TELEGRAM_ALLOWED_USER_ID: undefined,
+	// Latent bug fix: RECURRENCE_CRON_TIME was missing from test config
+	RECURRENCE_CRON_TIME: '0 5 * * *',
+	// Phase 9 additions
+	NUDGE_TICK_INTERVAL_MS: 30000,
+	WAKE_SECRET: 'test-wake-secret-do-not-use-in-prod-12345', // 41 chars > 16 min
+	WAKE_DEBOUNCE_MS: 300000,
+	CHECKIN_CLEANUP_MS: 900000,
 };
 
 export function buildTestApp(

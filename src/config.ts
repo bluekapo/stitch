@@ -13,6 +13,18 @@ const envSchema = z.object({
 	TELEGRAM_BOT_TOKEN: z.string().default(''),
 	TELEGRAM_ALLOWED_USER_ID: z.coerce.number().optional(),
 	RECURRENCE_CRON_TIME: z.string().default('0 5 * * *'),
+
+	// Phase 9: CheckInService cadence
+	NUDGE_TICK_INTERVAL_MS: z.coerce.number().int().positive().default(30000),
+
+	// Phase 9: Wake webhook security + idempotency (D-18 required, no default)
+	WAKE_SECRET: z
+		.string()
+		.min(16, 'WAKE_SECRET must be at least 16 characters (Phase 9 webhook security)'),
+	WAKE_DEBOUNCE_MS: z.coerce.number().int().positive().default(300000),
+
+	// Phase 9: Check-in message TTL (15 min) — overrides default 60s scheduleCleanup
+	CHECKIN_CLEANUP_MS: z.coerce.number().int().positive().default(900000),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
