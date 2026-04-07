@@ -27,7 +27,11 @@ export function createTestDb() {
 		CREATE TABLE IF NOT EXISTS task_durations (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-			duration_seconds INTEGER NOT NULL,
+			duration_seconds INTEGER,
+			outcome TEXT NOT NULL DEFAULT 'completed',
+			predicted_min_seconds INTEGER,
+			predicted_max_seconds INTEGER,
+			predicted_confidence TEXT,
 			started_at TEXT NOT NULL,
 			ended_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
@@ -93,7 +97,10 @@ export function createTestDb() {
 			label TEXT NOT NULL,
 			is_locked INTEGER NOT NULL DEFAULT 0,
 			sort_order INTEGER NOT NULL DEFAULT 0,
-			status TEXT NOT NULL DEFAULT 'pending'
+			status TEXT NOT NULL DEFAULT 'pending',
+			predicted_min_seconds INTEGER,
+			predicted_max_seconds INTEGER,
+			predicted_confidence TEXT
 		);
 		CREATE TABLE IF NOT EXISTS pending_cleanups (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
