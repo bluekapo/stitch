@@ -1,9 +1,10 @@
+import { eq } from 'drizzle-orm';
 import { describe, it, expect, vi } from 'vitest';
 import { CheckInService } from '../../src/core/check-in-service.js';
 import { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
 import { TaskService } from '../../src/core/task-service.js';
-import { checkIns, dailyPlans } from '../../src/db/schema.js';
+import { checkIns, dailyPlans, planChunks, taskDurations, tasks } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { createTestDb } from '../helpers/db.js';
 
@@ -322,5 +323,159 @@ describe('CheckInService -- restart (CHAN-03, D-21)', () => {
 		// Strict equality: app.ts MUST NOT also fire a restart — only start() owns it.
 		expect(restartRows.length).toBe(1);
 		await service.stop();
+	});
+});
+
+describe('CheckInService -- Phase 10: buffer-end disposition writes task_durations rows', () => {
+	// REGRESSION GUARD (Phase 10, Plan 10-03 Task 4):
+	// Pre-Phase-10, the buffer-end disposition path used inline `db.update(tasks)`
+	// calls that bypassed taskService entirely — so auto-skipped/auto-postponed
+	// tasks NEVER produced task_durations rows, silently defeating the chronic-
+	// procrastination signal that PredictionService consumes.
+	//
+	// These tests assert that buffer-end skip and buffer-end postpone BOTH write
+	// task_durations rows (with the appropriate outcome enum). Any future revert
+	// to inline db.update will fail this guard.
+	//
+	// See 10-RESEARCH.md Open Question 5.
+
+	function seedPlanWithChunk(db: ReturnType<typeof createTestDb>) {
+		db.insert(dailyPlans)
+			.values({
+				date: '2026-04-07',
+				status: 'active',
+			})
+			.run();
+		const planRow = db.select().from(dailyPlans).all()[0];
+
+		db.insert(planChunks)
+			.values({
+				planId: planRow.id,
+				branchName: 'Morning',
+				label: 'Morning duties',
+				startTime: '08:00',
+				endTime: '10:00',
+				isTaskSlot: true,
+				sortOrder: 0,
+				status: 'pending',
+			})
+			.run();
+		const chunkRow = db.select().from(planChunks).all()[0];
+
+		db.insert(tasks)
+			.values({ name: 'Pushups', chunkId: chunkRow.id, branchName: 'Morning' })
+			.run();
+		db.insert(tasks)
+			.values({ name: 'Read', chunkId: chunkRow.id, branchName: 'Morning' })
+			.run();
+
+		return chunkRow.id;
+	}
+
+	it('buffer-end skip writes task_durations row with outcome=skipped', async () => {
+		const { service, db, llm } = makeService();
+		const chunkId = seedPlanWithChunk(db);
+		const taskRows = db.select().from(tasks).all();
+
+		llm.setFixture('buffer_end_disposition', {
+			decisions: [
+				{ taskId: taskRows[0].id, action: 'skip' },
+				{ taskId: taskRows[1].id, action: 'skip' },
+			],
+		});
+
+		await service.runBufferEndDisposition(chunkId);
+
+		// Both tasks should have task_durations rows with outcome='skipped'
+		const row0 = db
+			.select()
+			.from(taskDurations)
+			.where(eq(taskDurations.taskId, taskRows[0].id))
+			.get();
+		const row1 = db
+			.select()
+			.from(taskDurations)
+			.where(eq(taskDurations.taskId, taskRows[1].id))
+			.get();
+
+		expect(row0).toBeDefined();
+		expect(row0?.outcome).toBe('skipped');
+		expect(row0?.durationSeconds).toBeNull();
+
+		expect(row1).toBeDefined();
+		expect(row1?.outcome).toBe('skipped');
+		expect(row1?.durationSeconds).toBeNull();
+
+		// Task status was also updated (existing semantic preserved)
+		const t0 = db.select().from(tasks).where(eq(tasks.id, taskRows[0].id)).get();
+		expect(t0?.status).toBe('skipped');
+	});
+
+	it('buffer-end postpone writes task_durations row with outcome=postponed', async () => {
+		const { service, db, llm } = makeService();
+		const chunkId = seedPlanWithChunk(db);
+		const taskRows = db.select().from(tasks).all();
+
+		llm.setFixture('buffer_end_disposition', {
+			decisions: [
+				{ taskId: taskRows[0].id, action: 'postpone' },
+				{ taskId: taskRows[1].id, action: 'postpone' },
+			],
+		});
+
+		await service.runBufferEndDisposition(chunkId);
+
+		const row0 = db
+			.select()
+			.from(taskDurations)
+			.where(eq(taskDurations.taskId, taskRows[0].id))
+			.get();
+		const row1 = db
+			.select()
+			.from(taskDurations)
+			.where(eq(taskDurations.taskId, taskRows[1].id))
+			.get();
+
+		expect(row0?.outcome).toBe('postponed');
+		expect(row0?.durationSeconds).toBeNull();
+
+		expect(row1?.outcome).toBe('postponed');
+		expect(row1?.durationSeconds).toBeNull();
+
+		// Pitfall 6: postpone nulls the chunkId/branchName (buffer-end semantics preserved)
+		const t0 = db.select().from(tasks).where(eq(tasks.id, taskRows[0].id)).get();
+		expect(t0?.chunkId).toBeNull();
+		expect(t0?.branchName).toBeNull();
+		expect(t0?.status).toBe('pending');
+		expect(t0?.postponeCount).toBe(1);
+	});
+
+	it('mixed skip + postpone -- both decisions write the correct outcome', async () => {
+		const { service, db, llm } = makeService();
+		const chunkId = seedPlanWithChunk(db);
+		const taskRows = db.select().from(tasks).all();
+
+		llm.setFixture('buffer_end_disposition', {
+			decisions: [
+				{ taskId: taskRows[0].id, action: 'postpone' },
+				{ taskId: taskRows[1].id, action: 'skip' },
+			],
+		});
+
+		await service.runBufferEndDisposition(chunkId);
+
+		const postponeRow = db
+			.select()
+			.from(taskDurations)
+			.where(eq(taskDurations.taskId, taskRows[0].id))
+			.get();
+		const skipRow = db
+			.select()
+			.from(taskDurations)
+			.where(eq(taskDurations.taskId, taskRows[1].id))
+			.get();
+
+		expect(postponeRow?.outcome).toBe('postponed');
+		expect(skipRow?.outcome).toBe('skipped');
 	});
 });
