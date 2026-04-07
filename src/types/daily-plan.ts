@@ -32,6 +32,12 @@ export interface ChunkTask {
 	isLocked: boolean;
 	sortOrder: number;
 	status: 'pending' | 'active' | 'completed' | 'skipped';
+	// Phase 10 (D-05): prediction columns, nullable for D-06 fall-through.
+	// View types (PlanChunkView, ChunkTaskView, CurrentChunkView) are owned
+	// by Plan 10-05 and intentionally untouched here.
+	predictedMinSeconds: number | null;
+	predictedMaxSeconds: number | null;
+	predictedConfidence: 'low' | 'medium' | 'high' | null;
 }
 
 export interface DailyPlanView {
