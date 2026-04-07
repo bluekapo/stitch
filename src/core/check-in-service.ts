@@ -1,15 +1,19 @@
 import { format } from 'date-fns';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Api } from 'grammy';
 import type { Logger } from 'pino';
 import { schedulePerMessageCleanup } from '../channels/telegram/cleanup.js';
 import type { HubManager } from '../channels/telegram/hub.js';
 import type { StitchDb } from '../db/index.js';
-import { checkIns } from '../db/schema.js';
-import { CHECK_IN_SYSTEM_PROMPT, buildCheckInUserPrompt } from '../prompts/check-in.js';
+import { checkIns, planChunks, tasks } from '../db/schema.js';
+import {
+	BUFFER_END_DISPOSITION_PROMPT,
+	CHECK_IN_SYSTEM_PROMPT,
+	buildCheckInUserPrompt,
+} from '../prompts/check-in.js';
 import { withSoul } from '../prompts/soul.js';
 import type { LlmProvider } from '../providers/llm.js';
-import { CheckInResponseSchema } from '../schemas/check-in.js';
+import { BufferEndDispositionSchema, CheckInResponseSchema } from '../schemas/check-in.js';
 import type { CheckInRow, TriggerReason } from '../types/check-in.js';
 import { getCurrentChunk } from './current-chunk.js';
 import type { DailyPlanService } from './daily-plan-service.js';
@@ -171,18 +175,63 @@ export class CheckInService {
 	 * directly without setInterval / fake timer gymnastics. Production callers
 	 * (the setInterval handler) ignore the returned promise.
 	 *
-	 * Step 1: deterministic chunk lifecycle (Task 3 wires `runBufferEndDisposition`
-	 *         in here — see Task 3 for the buffer-end dispatch loop).
+	 * Step 1: deterministic chunk lifecycle. Pulls active day's plan + its
+	 *         pending/active chunks, and dispatches runBufferEndDisposition for
+	 *         any chunk past endTime + 50% buffer (Warning 6 wiring guard).
 	 * Step 2: LLM check-in oracle if next-check timer is due.
 	 */
 	async tick(): Promise<void> {
-		// Step 1: chunk lifecycle (deterministic) -- buffer-end transitions
-		// Task 3 REPLACES this stub with the buffer-end dispatch loop. The
-		// dispatch loop reads the active day's chunks and calls
-		// runBufferEndDisposition for any chunk where now >= endTime + 50% buffer.
-		// Step 2: check-in evaluation (LLM oracle if due)
+		// ---------- PHASE 1: chunk lifecycle (deterministic, OUTSIDE transaction) ----------
+		// Pull active day's plan + its pending/active chunks. All sync reads.
+		const todayPlan = this.dailyPlanService.getTodayPlan() as
+			| { id: number; startedAt?: string | null }
+			| undefined;
+
+		if (todayPlan?.startedAt) {
+			const activeChunks = this.db
+				.select()
+				.from(planChunks)
+				.where(
+					and(
+						eq(planChunks.planId, todayPlan.id),
+						inArray(planChunks.status, ['pending', 'active']),
+					),
+				)
+				.all();
+
+			const now = this.now();
+			const dateStr = now.toISOString().slice(0, 10);
+
+			for (const chunk of activeChunks) {
+				// Compute buffer end: endTime + 50% of (endTime - startTime).
+				// startTime/endTime are 'HH:MM' strings — combine with today's date for absolute Date.
+				const startMs = new Date(`${dateStr}T${chunk.startTime}:00`).getTime();
+				const endMs = new Date(`${dateStr}T${chunk.endTime}:00`).getTime();
+				const bufferMs = (endMs - startMs) * 0.5;
+				const bufferEndMs = endMs + bufferMs;
+
+				if (now.getTime() >= bufferEndMs) {
+					// Dispatch disposition. Each call internally follows Pitfall 4 split.
+					// Errors are swallowed at the disposition level (LLM fail = retry next tick).
+					try {
+						await this.runBufferEndDisposition(chunk.id);
+					} catch (err) {
+						this.logger?.warn(
+							{ err, chunkId: chunk.id },
+							'tick: runBufferEndDisposition failed',
+						);
+					}
+				}
+			}
+		}
+
+		// ---------- PHASE 2: regular check-in evaluation ----------
 		if (this.shouldRunOracle()) {
-			await this.runOracle('scheduled');
+			try {
+				await this.runOracle('scheduled');
+			} catch (err) {
+				this.logger?.warn({ err }, 'tick: runOracle failed');
+			}
 		}
 	}
 
@@ -331,5 +380,198 @@ export class CheckInService {
 			.where(eq(checkIns.dayAnchor, today))
 			.orderBy(checkIns.createdAt)
 			.all() as CheckInRow[];
+	}
+
+	// ==========================================================
+	// Buffer-end disposition (D-08, Pitfall 4 sync/async split)
+	// ==========================================================
+
+	/**
+	 * Run buffer-end disposition for a chunk (D-08).
+	 *
+	 * Called from tick() when a chunk's [startTime, endTime) + 50% buffer
+	 * has expired AND the chunk is still status='pending' or status='active'.
+	 *
+	 * Pitfall 4: this method MUST follow the PHASE 1/2/3 split. The LLM call
+	 * resolves BEFORE db.transaction() opens. Zero await inside the callback.
+	 */
+	async runBufferEndDisposition(chunkId: number): Promise<void> {
+		// ---------- PHASE 1: Read context (sync, OUTSIDE transaction) ----------
+		const chunkRow = this.db
+			.select()
+			.from(planChunks)
+			.where(eq(planChunks.id, chunkId))
+			.get();
+		if (!chunkRow) return;
+
+		// Pull tasks attached to this chunk via tasks.chunkId (Phase 08.3 source of truth)
+		const chunkTaskRows = this.taskService.listForChunk(chunkId);
+
+		if (chunkTaskRows.length === 0) {
+			// No tasks to dispose — just transition status to 'completed'
+			this.db
+				.update(planChunks)
+				.set({ status: 'completed' })
+				.where(eq(planChunks.id, chunkId))
+				.run();
+			return;
+		}
+
+		const tree = this.dayTreeService.getTree();
+		const userPrompt = this.buildBufferEndUserPrompt(
+			chunkRow,
+			chunkTaskRows.map((t) => ({
+				id: t.id,
+				name: t.name,
+				status: t.status,
+				isEssential: t.isEssential,
+			})),
+			tree,
+		);
+
+		// ---------- PHASE 2: LLM call (async, OUTSIDE transaction — Pitfall 4) ----------
+		let result: { decisions: Array<{ taskId: number; action: 'continue' | 'postpone' | 'skip' | 'move_to_next_chunk' }> };
+		try {
+			result = await this.llmProvider.complete({
+				messages: [
+					{ role: 'system', content: withSoul(BUFFER_END_DISPOSITION_PROMPT) },
+					{ role: 'user', content: userPrompt },
+				],
+				schema: BufferEndDispositionSchema,
+				schemaName: 'buffer_end_disposition',
+				temperature: 0.3,
+				thinking: false,
+				maxTokens: 1024,
+			});
+		} catch (err) {
+			this.logger?.warn(
+				{ err, chunkId },
+				'buffer-end disposition LLM call failed -- skipping',
+			);
+			// Skip the disposition; the next tick will retry. The chunk stays pending.
+			return;
+		}
+
+		// Hallucination defense: drop decisions for taskIds NOT in the chunk
+		const validTaskIds = new Set(chunkTaskRows.map((t) => t.id));
+		const validDecisions = result.decisions.filter((d) => validTaskIds.has(d.taskId));
+
+		// ---------- PHASE 3: All DB writes (sync, INSIDE db.transaction) ----------
+		// NOTE: NO await inside this callback. taskService.postpone is sync.
+		this.db.transaction(() => {
+			for (const decision of validDecisions) {
+				switch (decision.action) {
+					case 'continue':
+						// Leave attached as-is. No-op.
+						break;
+					case 'postpone':
+						// Inline: increment postpone_count, set status pending, NULL the chunkId.
+						// Per Pitfall 6: postpone SHOULD null the chunkId — that's the "fully unattached" semantic.
+						this.db
+							.update(tasks)
+							.set({
+								postponeCount: sql`postpone_count + 1`,
+								status: 'pending',
+								chunkId: null,
+								branchName: null,
+								updatedAt: sql`(datetime('now'))`,
+							})
+							.where(eq(tasks.id, decision.taskId))
+							.run();
+						break;
+					case 'skip':
+						this.db
+							.update(tasks)
+							.set({
+								status: 'skipped',
+								updatedAt: sql`(datetime('now'))`,
+							})
+							.where(eq(tasks.id, decision.taskId))
+							.run();
+						break;
+					case 'move_to_next_chunk': {
+						// Find the next chunk by sortOrder + planId
+						const nextChunk = this.db
+							.select()
+							.from(planChunks)
+							.where(
+								and(
+									eq(planChunks.planId, chunkRow.planId),
+									sql`${planChunks.sortOrder} > ${chunkRow.sortOrder}`,
+								),
+							)
+							.orderBy(planChunks.sortOrder)
+							.limit(1)
+							.get();
+						if (nextChunk) {
+							this.db
+								.update(tasks)
+								.set({
+									chunkId: nextChunk.id,
+									branchName: nextChunk.branchName,
+									updatedAt: sql`(datetime('now'))`,
+								})
+								.where(eq(tasks.id, decision.taskId))
+								.run();
+						} else {
+							// No next chunk — fall through to postpone semantics
+							this.db
+								.update(tasks)
+								.set({
+									postponeCount: sql`postpone_count + 1`,
+									status: 'pending',
+									chunkId: null,
+									branchName: null,
+									updatedAt: sql`(datetime('now'))`,
+								})
+								.where(eq(tasks.id, decision.taskId))
+								.run();
+						}
+						break;
+					}
+				}
+			}
+
+			// Transition chunk status: 'completed' only when EVERY remaining task on
+			// the chunk is status='completed'. Anything else (pending, active, skipped,
+			// or unattached via postpone) leaves the chunk as 'skipped'. The semantic
+			// is "did the chunk fully execute" — postpone/skip both mean "no".
+			const remaining = this.db
+				.select({ status: tasks.status })
+				.from(tasks)
+				.where(eq(tasks.chunkId, chunkId))
+				.all();
+			const allCompleted =
+				remaining.length > 0 && remaining.every((t) => t.status === 'completed');
+			const newStatus = allCompleted ? 'completed' : 'skipped';
+			this.db
+				.update(planChunks)
+				.set({ status: newStatus })
+				.where(eq(planChunks.id, chunkId))
+				.run();
+		});
+	}
+
+	private buildBufferEndUserPrompt(
+		chunk: { id: number; label: string; startTime: string; endTime: string },
+		chunkTasksList: Array<{ id: number; name: string; status: string; isEssential: boolean }>,
+		tree: { branches: Array<{ name: string; startTime: string; endTime: string }> } | undefined,
+	): string {
+		const lines: string[] = [];
+		lines.push(`Expiring chunk: ${chunk.label} (${chunk.startTime}-${chunk.endTime})`);
+		lines.push('');
+		lines.push('Tasks in chunk (with current statuses):');
+		for (const t of chunkTasksList) {
+			const flag = t.isEssential ? ' [ESSENTIAL]' : '';
+			lines.push(`- ID:${t.id} "${t.name}" status=${t.status}${flag}`);
+		}
+		if (tree && tree.branches.length > 0) {
+			lines.push('');
+			lines.push('Day tree (for context — what comes after this chunk):');
+			for (const b of tree.branches) {
+				lines.push(`- ${b.name} (${b.startTime}-${b.endTime})`);
+			}
+		}
+		return lines.join('\n');
 	}
 }
