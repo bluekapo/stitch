@@ -3,7 +3,6 @@ import Fastify from 'fastify';
 import type { Bot } from 'grammy';
 import { setupTelegramBot } from './channels/telegram/index.js';
 import { flushPendingCleanups } from './channels/telegram/cleanup.js';
-import type { HubManager } from './channels/telegram/hub.js';
 import { CheckInService } from './core/check-in-service.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
 import { DayTreeService } from './core/day-tree-service.js';
@@ -124,15 +123,12 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	}
 
 	// Phase 9 (CHAN-02/03): WakeStateService -- request-driven, started by the
-	// POST /wake/:secret route. Reads hub from the decorator if available
-	// (undefined when TELEGRAM_BOT_TOKEN is unset, e.g., in tests).
-	const hubRef = (app as unknown as { hub?: HubManager }).hub;
+	// POST /wake/:secret route.
 	const wakeStateService = new WakeStateService({
 		db,
 		dailyPlanService,
 		dayTreeService,
 		checkInService,
-		hubManager: hubRef,
 		debounceMs: config.WAKE_DEBOUNCE_MS,
 		// Fastify's logger is structurally compatible with pino's Logger interface
 		// but TypeScript considers them distinct (FastifyBaseLogger vs Logger).

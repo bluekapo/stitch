@@ -1,11 +1,10 @@
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import type { HubManager } from '../channels/telegram/hub.js';
 import type { StitchDb } from '../db/index.js';
 import { dailyPlans } from '../db/schema.js';
 import type { TriggerReason } from '../types/check-in.js';
-import { computeLatestEndTime } from './day-boundary.js';
 import type { DailyPlanService } from './daily-plan-service.js';
+import { computeLatestEndTime } from './day-boundary.js';
 import type { DayTreeService } from './day-tree-service.js';
 
 /**
@@ -43,7 +42,6 @@ export interface WakeStateServiceOptions {
 	dailyPlanService: DailyPlanService;
 	dayTreeService: DayTreeService;
 	checkInService: CheckInServiceLike;
-	hubManager?: HubManager; // optional — wake may fire before user has opened bot
 	debounceMs: number; // from config.WAKE_DEBOUNCE_MS (default 300_000)
 	logger?: Logger;
 	now?: () => Date; // injectable for tests; defaults to () => new Date()
@@ -54,7 +52,6 @@ export class WakeStateService {
 	private dailyPlanService: DailyPlanService;
 	private dayTreeService: DayTreeService;
 	private checkInService: CheckInServiceLike;
-	private hubManager: HubManager | undefined;
 	private debounceMs: number;
 	private logger: Logger | undefined;
 	private now: () => Date;
@@ -64,7 +61,6 @@ export class WakeStateService {
 		this.dailyPlanService = options.dailyPlanService;
 		this.dayTreeService = options.dayTreeService;
 		this.checkInService = options.checkInService;
-		this.hubManager = options.hubManager;
 		this.debounceMs = options.debounceMs;
 		this.logger = options.logger;
 		this.now = options.now ?? (() => new Date());
@@ -104,11 +100,7 @@ export class WakeStateService {
 		}
 
 		// Re-read the row directly (we need the wake columns which DailyPlan type may not expose yet)
-		const rows = this.db
-			.select()
-			.from(dailyPlans)
-			.where(eq(dailyPlans.date, dayAnchor))
-			.all();
+		const rows = this.db.select().from(dailyPlans).where(eq(dailyPlans.date, dayAnchor)).all();
 		const row = rows[0];
 		if (!row) {
 			// Defensive — ensureTodayPlan succeeded but row is missing? Persist a fresh row.
@@ -191,34 +183,25 @@ export class WakeStateService {
 	 * D-20 day-start sequence. Runs ONCE per day (idempotency enforced by handleWakeCall).
 	 *
 	 * Order:
-	 *   1. hubManager?.updateHub() — silently no-ops if no hub ref yet (D-20.1, see hub.ts:67)
-	 *   2. dailyPlanService.ensureTodayPlan() — already called in handleWakeCall, but call again here for clarity & safety
-	 *   3. UPDATE dailyPlans SET started_at = now, wake_fired_at = now, last_wake_call_at = now
-	 *   4. checkInService.forceCheckIn('wake') — fire the good-morning check-in (D-20.4)
+	 *   1. dailyPlanService.ensureTodayPlan() — already called in handleWakeCall, but call again here for clarity & safety
+	 *   2. UPDATE dailyPlans SET started_at = now, wake_fired_at = now, last_wake_call_at = now
+	 *   3. checkInService.forceCheckIn('wake') — fire the good-morning check-in (D-20.4)
+	 *
+	 * NOTE D-20.1 originally specified a hub refresh as step 1. That was removed
+	 * after a UAT regression: HubManager.updateHub(text) without a menu argument
+	 * forwards `reply_markup: undefined` to editMessageText, which strips the
+	 * inline keyboard from the pinned hub. The check-in message ('Good morning,
+	 * Sir...') already serves as the day-start notification; the hub refreshes
+	 * organically on next user interaction.
 	 *
 	 * NOTE: This is `private` because the only legitimate caller is handleWakeCall.
 	 *       Tests can still exercise it indirectly via handleWakeCall.
 	 */
 	private async runDayStartSequence(dayAnchor: string, nowDate: Date): Promise<void> {
-		// Step 1: hub refresh (D-20.1) — silently no-ops if no hub ref
-		// HubManager.updateHub returns early at hub.ts:67 when there is no ref,
-		// so a wake call before the user has opened the bot won't crash.
-		if (this.hubManager) {
-			try {
-				await this.hubManager.updateHub('Day started.');
-			} catch (err) {
-				// Don't let hub failure block the day-start. Log and continue.
-				this.logger?.warn?.(
-					{ err, dayAnchor },
-					'WakeStateService: updateHub failed during day-start',
-				);
-			}
-		}
-
-		// Step 2: ensureTodayPlan again (cheap re-call; idempotent)
+		// Step 1: ensureTodayPlan again (cheap re-call; idempotent)
 		await this.dailyPlanService.ensureTodayPlan();
 
-		// Step 3: persist wake state (started_at + wake_fired_at + last_wake_call_at)
+		// Step 2: persist wake state (started_at + wake_fired_at + last_wake_call_at)
 		const nowIso = nowDate.toISOString();
 		this.db
 			.update(dailyPlans)
@@ -230,7 +213,7 @@ export class WakeStateService {
 			.where(eq(dailyPlans.date, dayAnchor))
 			.run();
 
-		// Step 4: fire the good-morning check-in (D-20.4)
+		// Step 3: fire the good-morning check-in (D-20.4)
 		await this.checkInService.forceCheckIn('wake');
 	}
 

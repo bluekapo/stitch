@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HubManager } from '../../src/channels/telegram/hub.js';
 import type { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import type { DayTreeService } from '../../src/core/day-tree-service.js';
 import type { CheckInServiceLike } from '../../src/core/wake-state.js';
@@ -13,7 +12,7 @@ import { createTestDb } from '../helpers/db.js';
 /**
  * WakeStateService unit tests.
  * Strategy: in-memory DB (createTestDb), mocked collaborator services
- * (DailyPlanService, DayTreeService, CheckInService, HubManager), injectable
+ * (DailyPlanService, DayTreeService, CheckInService), injectable
  * `now` for deterministic time advancement.
  */
 
@@ -42,25 +41,16 @@ function seedTodayPlan(db: StitchDb, date: string = DAY_ANCHOR): void {
 }
 
 /** Build a service under test with explicit `now` injection. */
-function buildSut(opts: {
-	db: StitchDb;
-	now: () => Date;
-	tree?: DayTree;
-	hubManager?: HubManager;
-}): {
+function buildSut(opts: { db: StitchDb; now: () => Date; tree?: DayTree }): {
 	service: WakeStateService;
 	mocks: {
 		ensureTodayPlan: ReturnType<typeof vi.fn>;
 		forceCheckIn: ReturnType<typeof vi.fn>;
-		updateHub: ReturnType<typeof vi.fn>;
 		getTree: ReturnType<typeof vi.fn>;
 	};
 } {
-	const ensureTodayPlan = vi
-		.fn()
-		.mockResolvedValue({ id: 1, date: DAY_ANCHOR, status: 'active' });
+	const ensureTodayPlan = vi.fn().mockResolvedValue({ id: 1, date: DAY_ANCHOR, status: 'active' });
 	const forceCheckIn = vi.fn().mockResolvedValue(undefined);
-	const updateHub = vi.fn().mockResolvedValue(undefined);
 	const getTree = vi.fn().mockReturnValue(opts.tree);
 
 	// NOTE (Warning 7 — backward-compat policy): When this test mocks DailyPlanService it
@@ -72,20 +62,17 @@ function buildSut(opts: {
 	const dailyPlanService = { ensureTodayPlan } as unknown as DailyPlanService;
 	const dayTreeService = { getTree } as unknown as DayTreeService;
 	const checkInService = { forceCheckIn } as unknown as CheckInServiceLike;
-	const hubManager =
-		opts.hubManager ?? ({ updateHub, getRef: () => null } as unknown as HubManager);
 
 	const service = new WakeStateService({
 		db: opts.db,
 		dailyPlanService,
 		dayTreeService,
 		checkInService,
-		hubManager,
 		debounceMs: DEBOUNCE_MS,
 		now: opts.now,
 	});
 
-	return { service, mocks: { ensureTodayPlan, forceCheckIn, updateHub, getTree } };
+	return { service, mocks: { ensureTodayPlan, forceCheckIn, getTree } };
 }
 
 describe('WakeStateService — D-19 two-layer idempotency', () => {
@@ -260,47 +247,6 @@ describe('WakeStateService — D-20 day-start sequence side effects', () => {
 		seedTodayPlan(db);
 	});
 
-	it('day-start hub — calls hubManager.updateHub exactly once', async () => {
-		const t0 = new Date(`${DAY_ANCHOR}T07:00:00.000`);
-		const tFire = new Date(`${DAY_ANCHOR}T07:06:00.000`);
-		let now = t0;
-		const { service, mocks } = buildSut({ db, now: () => now, tree: buildTree() });
-
-		await service.handleWakeCall();
-		now = tFire;
-		await service.handleWakeCall();
-
-		expect(mocks.updateHub).toHaveBeenCalledTimes(1);
-	});
-
-	it('day-start hub — does NOT crash when hubManager is undefined', async () => {
-		const t0 = new Date(`${DAY_ANCHOR}T07:00:00.000`);
-		const tFire = new Date(`${DAY_ANCHOR}T07:06:00.000`);
-		let now = t0;
-		// Build SUT without a hubManager
-		const ensureTodayPlan = vi
-			.fn()
-			.mockResolvedValue({ id: 1, date: DAY_ANCHOR, status: 'active' });
-		const forceCheckIn = vi.fn().mockResolvedValue(undefined);
-		const getTree = vi.fn().mockReturnValue(buildTree());
-		const service = new WakeStateService({
-			db,
-			dailyPlanService: { ensureTodayPlan } as unknown as DailyPlanService,
-			dayTreeService: { getTree } as unknown as DayTreeService,
-			checkInService: { forceCheckIn } as unknown as CheckInServiceLike,
-			// no hubManager
-			debounceMs: DEBOUNCE_MS,
-			now: () => now,
-		});
-
-		await service.handleWakeCall();
-		now = tFire;
-		const result = await service.handleWakeCall();
-
-		expect(result.status).toBe('fired');
-		expect(forceCheckIn).toHaveBeenCalledWith('wake');
-	});
-
 	it('day-start ensure plan — calls dailyPlanService.ensureTodayPlan at least once', async () => {
 		const t0 = new Date(`${DAY_ANCHOR}T07:00:00.000`);
 		const tFire = new Date(`${DAY_ANCHOR}T07:06:00.000`);
@@ -311,10 +257,10 @@ describe('WakeStateService — D-20 day-start sequence side effects', () => {
 		now = tFire;
 		await service.handleWakeCall();
 
-		// ensureTodayPlan is called per handleWakeCall (Step 1+2) AND inside runDayStartSequence (Step 2)
+		// ensureTodayPlan is called per handleWakeCall (Step 1+2) AND inside runDayStartSequence (Step 1)
 		// So total calls across the 2 handleWakeCall invocations:
 		//   call 1: 1 (Step 1+2 only)
-		//   call 2: 2 (Step 1+2 + Step 2 of runDayStartSequence)
+		//   call 2: 2 (Step 1+2 + Step 1 of runDayStartSequence)
 		// Total: 3
 		expect(mocks.ensureTodayPlan.mock.calls.length).toBeGreaterThanOrEqual(3);
 	});

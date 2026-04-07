@@ -162,7 +162,6 @@ describe('POST /wake/:secret -- CHAN-02 secret + body', () => {
 describe('POST /wake/:secret -- CHAN-03 day-start side effects', () => {
 	let app: FastifyInstance;
 	let mockWakeStateService: MockWakeStateService;
-	let updateHubSpy: ReturnType<typeof vi.fn>;
 	let ensureTodayPlanSpy: ReturnType<typeof vi.fn>;
 	let forceCheckInSpy: ReturnType<typeof vi.fn>;
 	let markStartedSpy: ReturnType<typeof vi.fn>;
@@ -170,14 +169,12 @@ describe('POST /wake/:secret -- CHAN-03 day-start side effects', () => {
 	beforeEach(async () => {
 		app = buildTestApp();
 		// Inject spies via the wakeStateService mock -- handleWakeCall calls these in order
-		updateHubSpy = vi.fn().mockResolvedValue(undefined);
 		ensureTodayPlanSpy = vi.fn().mockResolvedValue({ id: 1, date: '2026-04-07' });
 		forceCheckInSpy = vi.fn().mockResolvedValue(undefined);
 		markStartedSpy = vi.fn();
 		mockWakeStateService = {
 			handleWakeCall: vi.fn().mockImplementation(async () => {
 				// Simulate the day-start sequence the real WakeStateService runs
-				await updateHubSpy();
 				await ensureTodayPlanSpy();
 				markStartedSpy();
 				await forceCheckInSpy('wake');
@@ -190,11 +187,6 @@ describe('POST /wake/:secret -- CHAN-03 day-start side effects', () => {
 
 	afterEach(async () => {
 		await app.close();
-	});
-
-	it('day-start hub -- calls updateHub exactly once', async () => {
-		await app.inject({ method: 'POST', url: `/wake/${TEST_SECRET}`, payload: {} });
-		expect(updateHubSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it('day-start ensure plan -- calls dailyPlanService.ensureTodayPlan exactly once', async () => {
