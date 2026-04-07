@@ -1,6 +1,6 @@
-import { eq, sql, sum } from 'drizzle-orm';
+import { desc, eq, sql, sum } from 'drizzle-orm';
 import type { StitchDb } from '../db/index.js';
-import { tasks, taskDurations } from '../db/schema.js';
+import { chunkTasks, tasks, taskDurations } from '../db/schema.js';
 import type { CreateTaskInput, TaskDetail, TaskListItem } from '../types/task.js';
 
 export class TaskService {
@@ -100,6 +100,43 @@ export class TaskService {
 			.run();
 	}
 
+	/**
+	 * Phase 10 (Plan 10-03 Task 1): look up the most recent chunk_tasks row
+	 * for this task to get its prediction columns. Used by stopTimer/skip/
+	 * postpone to pair (predicted, actual) in the task_durations row.
+	 *
+	 * Strategy: `ORDER BY chunk_tasks.id DESC LIMIT 1` gets the most recent row.
+	 * Plan regeneration (Phase 07 D-32 reset) overwrites chunk_tasks rows, so
+	 * the most recent row is the live one. See 10-RESEARCH.md Pitfall 4.
+	 *
+	 * Returns all-null if no chunk_tasks row exists (unattached task) or if
+	 * the row's prediction columns are null (prediction fell through per D-06).
+	 */
+	private lookupActivePrediction(taskId: number): {
+		min: number | null;
+		max: number | null;
+		confidence: 'low' | 'medium' | 'high' | null;
+	} {
+		const row = this.db
+			.select({
+				min: chunkTasks.predictedMinSeconds,
+				max: chunkTasks.predictedMaxSeconds,
+				confidence: chunkTasks.predictedConfidence,
+			})
+			.from(chunkTasks)
+			.where(eq(chunkTasks.taskId, taskId))
+			.orderBy(desc(chunkTasks.id))
+			.limit(1)
+			.get();
+
+		if (!row) return { min: null, max: null, confidence: null };
+		return {
+			min: row.min ?? null,
+			max: row.max ?? null,
+			confidence: (row.confidence ?? null) as 'low' | 'medium' | 'high' | null,
+		};
+	}
+
 	stopTimer(id: number): number {
 		const task = this.getById(id);
 		if (!task) throw new Error('Task not found.');
@@ -108,11 +145,19 @@ export class TaskService {
 		const elapsed = Date.now() - new Date(task.timerStartedAt).getTime();
 		const durationSeconds = Math.floor(elapsed / 1000);
 
+		// Phase 10 (D-21/D-23): copy prediction columns from the active chunk_tasks
+		// row so the (predicted, actual) pair is persisted together for future prompts.
+		const pred = this.lookupActivePrediction(id);
+
 		this.db
 			.insert(taskDurations)
 			.values({
 				taskId: id,
 				durationSeconds,
+				outcome: 'completed',
+				predictedMinSeconds: pred.min,
+				predictedMaxSeconds: pred.max,
+				predictedConfidence: pred.confidence,
 				startedAt: task.timerStartedAt,
 			})
 			.run();
@@ -133,11 +178,69 @@ export class TaskService {
 		const task = this.getById(id);
 		if (!task) throw new Error('Task not found.');
 		if (task.isEssential) throw new Error('Cannot postpone a locked task.');
+
+		// Phase 10 (D-22): write a task_durations row with null actual + outcome
+		// discriminator so chronic procrastination is visible to PredictionService.
+		const pred = this.lookupActivePrediction(id);
+		const now = new Date().toISOString();
+		this.db
+			.insert(taskDurations)
+			.values({
+				taskId: id,
+				durationSeconds: null,
+				outcome: 'postponed',
+				predictedMinSeconds: pred.min,
+				predictedMaxSeconds: pred.max,
+				predictedConfidence: pred.confidence,
+				startedAt: now,
+			})
+			.run();
+
 		this.db
 			.update(tasks)
 			.set({
 				postponeCount: sql`postpone_count + 1`,
 				status: 'pending',
+				updatedAt: sql`(datetime('now'))`,
+			})
+			.where(eq(tasks.id, id))
+			.run();
+	}
+
+	/**
+	 * Phase 10 (D-22): explicit skip. Writes a task_durations row with
+	 * outcome='skipped' and null duration_seconds so PredictionService sees
+	 * the skip event in global activity (chronic procrastination signal).
+	 *
+	 * This replaces the previous pattern of calling
+	 * `taskService.update(id, { status: 'skipped' })` which did not write a
+	 * task_durations row. Callers (check-in-service, future UI) should switch
+	 * to this explicit method.
+	 */
+	skip(id: number) {
+		const task = this.getById(id);
+		if (!task) throw new Error('Task not found.');
+
+		// Phase 10 (D-22): prediction copy.
+		const pred = this.lookupActivePrediction(id);
+		const now = new Date().toISOString();
+		this.db
+			.insert(taskDurations)
+			.values({
+				taskId: id,
+				durationSeconds: null,
+				outcome: 'skipped',
+				predictedMinSeconds: pred.min,
+				predictedMaxSeconds: pred.max,
+				predictedConfidence: pred.confidence,
+				startedAt: now,
+			})
+			.run();
+
+		this.db
+			.update(tasks)
+			.set({
+				status: 'skipped',
 				updatedAt: sql`(datetime('now'))`,
 			})
 			.where(eq(tasks.id, id))
