@@ -3,12 +3,14 @@ import { format } from 'date-fns';
 import type { StitchDb } from '../db/index.js';
 import { dailyPlans, planChunks, chunkTasks, tasks } from '../db/schema.js';
 import type { DayTreeService } from './day-tree-service.js';
+import type { PredictionService } from './prediction-service.js';
 import type { TaskService } from './task-service.js';
 import type { LlmProvider } from '../providers/llm.js';
 import { withSoul } from '../prompts/soul.js';
 import { ChunkPlanLlmSchema } from '../schemas/daily-plan.js';
 import type { DailyPlan, PlanChunk, ChunkTask } from '../types/daily-plan.js';
 import type { DayTree } from '../types/day-tree.js';
+import type { PredictionItem } from '../types/prediction.js';
 
 export class DailyPlanService {
 	constructor(
@@ -16,6 +18,11 @@ export class DailyPlanService {
 		private dayTreeService: DayTreeService,
 		private taskService: TaskService,
 		private llmProvider: LlmProvider,
+		// Phase 10 (D-01): predict-then-plan. PredictionService injected so
+		// generatePlan can call predictDurations BEFORE the plan LLM call and
+		// BEFORE the db.transaction opens. See PHASE 1.5 below for the Pitfall 4
+		// regression guard.
+		private predictionService: PredictionService,
 	) {}
 
 	private getTodayDateString(): string {
@@ -62,7 +69,39 @@ export class DailyPlanService {
 			t => t.status === 'pending' || t.status === 'active',
 		);
 
-		const { system, user } = this.buildPlanPrompt(tree, pendingTasks, date);
+		// =====================================================================
+		// PHASE 1.5: Prediction LLM call (async, OUTSIDE transaction — Pitfall 4)
+		//
+		// Per D-01 predict-then-plan, this call resolves BEFORE the plan LLM call
+		// and BEFORE any DB write. PredictionService.predictDurations() has a D-06
+		// contract of "always resolves, never throws" — the try/catch below is
+		// defensive belt-and-suspenders (see 10-RESEARCH.md Pitfall 2 regression
+		// warning). On total failure, we fall back to an empty Map and plan
+		// generation continues with null prediction columns on chunk_tasks rows.
+		// Plan generation is NEVER blocked by a prediction failure.
+		//
+		// CRITICAL: This await MUST stay OUTSIDE db.transaction(). Drizzle's
+		// better-sqlite3 driver is synchronous; awaiting inside the transaction
+		// callback silently corrupts state. See daily-plan-service.ts PHASE 3
+		// comment below and 10-RESEARCH.md Pitfall 2 / Pitfall 4.
+		// =====================================================================
+		let predictions: Map<number, PredictionItem>;
+		try {
+			predictions = await this.predictionService.predictDurations(
+				pendingTasks.map((t) => ({
+					id: t.id,
+					name: t.name,
+					sourceTaskId: t.sourceTaskId ?? null,
+				})),
+			);
+		} catch {
+			// PredictionService's D-06 contract guarantees no throws. This catch
+			// is defensive belt-and-suspenders only. Silent fall-through is fine
+			// because PredictionService already logs both retry attempts internally.
+			predictions = new Map();
+		}
+
+		const { system, user } = this.buildPlanPrompt(tree, pendingTasks, predictions, date);
 
 		// =====================================================================
 		// PHASE 2: LLM call (async, OUTSIDE transaction — Pitfall 4)
@@ -165,6 +204,13 @@ export class DailyPlanService {
 				// reflects the same set as the chunk_tasks join.)
 				for (let j = 0; j < validChunkTasks.length; j++) {
 					const task = validChunkTasks[j];
+
+					// Phase 10 (D-05): copy prediction columns from the Map onto the
+					// new row. predictions.get() is sync — safe inside the transaction
+					// callback. Missing entries (D-06 fall-through) produce all-null
+					// columns. The Map is closure-captured from PHASE 1.5.
+					const pred = predictions.get(task.taskId);
+
 					this.db.insert(chunkTasks)
 						.values({
 							chunkId: insertedChunk.id,
@@ -173,6 +219,9 @@ export class DailyPlanService {
 							isLocked: task.isLocked,
 							sortOrder: j,
 							status: 'pending',
+							predictedMinSeconds: pred?.predicted_min_seconds ?? null,
+							predictedMaxSeconds: pred?.predicted_max_seconds ?? null,
+							predictedConfidence: pred?.confidence ?? null,
 						})
 						.run();
 
@@ -214,6 +263,7 @@ export class DailyPlanService {
 	private buildPlanPrompt(
 		tree: DayTree,
 		pendingTasks: { id: number; name: string; isEssential: boolean; postponeCount: number; deadline: string | null }[],
+		predictions: Map<number, PredictionItem>,
 		today: string,
 	): { system: string; user: string } {
 		const treeText = tree.branches.map(b => {
@@ -227,6 +277,15 @@ export class DailyPlanService {
 			if (t.isEssential) flags.push('ESSENTIAL');
 			if (t.postponeCount > 0) flags.push(`postponed ${t.postponeCount}x`);
 			if (t.deadline) flags.push(`deadline: ${t.deadline}`);
+
+			// Phase 10 (D-05): inline duration annotation so the plan LLM sees the
+			// prediction and uses it for chunk packing. Max is shown, per D-15/D-16.
+			const pred = predictions.get(t.id);
+			if (pred) {
+				const minutes = Math.round(pred.predicted_max_seconds / 60);
+				flags.push(`predicted ~${minutes}min (${pred.confidence})`);
+			}
+
 			return `  ID:${t.id} "${t.name}" ${flags.join(', ')}`;
 		}).join('\n');
 
@@ -243,6 +302,7 @@ Rules:
 - Each chunk must have a valid branchName matching a branch in the tree.
 - Order chunks by startTime.
 - If fewer tasks than capacity, create fewer chunks with available tasks.
+- Tasks may have a "predicted ~Xmin (confidence)" annotation. Use this estimate when packing chunks so the chunk's task sum does not exceed the slot duration.
 - Today's date: ${today}
 
 Terminology:
