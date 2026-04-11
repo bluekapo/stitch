@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createTestDb } from '../helpers/db.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
@@ -571,5 +571,127 @@ describe('DailyPlanService', () => {
 		expect(db.select().from(tasks).where(eq(tasks.id, t3.id)).get()!.chunkId).toBeNull();
 		expect(db.select().from(tasks).where(eq(tasks.id, t2.id)).get()!.branchName).toBeNull();
 		expect(db.select().from(tasks).where(eq(tasks.id, t3.id)).get()!.branchName).toBeNull();
+	});
+
+	describe('Phase 10: prediction integration (D-01 predict-then-plan)', () => {
+		it('prediction call fires before plan call (PLAN-07.7)', async () => {
+			const t1 = taskService.create({ name: 'Task A' });
+			const t2 = taskService.create({ name: 'Task B' });
+
+			llm.setFixture('prediction', {
+				predictions: [
+					{ reasoning: 'stub', taskId: t1.id, predicted_min_seconds: 600, predicted_max_seconds: 900, confidence: 'high' },
+					{ reasoning: 'stub', taskId: t2.id, predicted_min_seconds: 300, predicted_max_seconds: 600, confidence: 'medium' },
+				],
+			});
+			llm.setFixture('chunk_plan', {
+				reasoning: 'stub plan',
+				chunks: [
+					{
+						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						tasks: [
+							{ taskId: t1.id, label: 'Task A', isLocked: false },
+							{ taskId: t2.id, label: 'Task B', isLocked: false },
+						],
+					},
+				],
+			});
+
+			const spy = vi.spyOn(llm, 'complete');
+			await planService.generatePlan('2026-04-07');
+
+			const schemaNames = spy.mock.calls.map(c => (c[0] as { schemaName: string }).schemaName);
+			const predIdx = schemaNames.indexOf('prediction');
+			const planIdx = schemaNames.indexOf('chunk_plan');
+			expect(predIdx).toBeGreaterThanOrEqual(0);
+			expect(planIdx).toBeGreaterThanOrEqual(0);
+			expect(predIdx).toBeLessThan(planIdx);
+			spy.mockRestore();
+		});
+
+		it('plan generation continues when prediction LLM fails (PLAN-07.8)', async () => {
+			const t1 = taskService.create({ name: 'Task A' });
+
+			// No prediction fixture → PredictionService retries once then falls through to empty Map (D-06)
+			llm.setFixture('chunk_plan', {
+				reasoning: 'plan proceeds without prediction',
+				chunks: [
+					{
+						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
+					},
+				],
+			});
+
+			const result = await planService.generatePlan('2026-04-07');
+
+			expect(result.chunks.length).toBe(1);
+
+			const ctRows = db.select().from(chunkTasks).all();
+			expect(ctRows.length).toBe(1);
+			expect(ctRows[0].predictedMinSeconds).toBeNull();
+			expect(ctRows[0].predictedMaxSeconds).toBeNull();
+			expect(ctRows[0].predictedConfidence).toBeNull();
+		});
+
+		it('chunk_tasks rows have prediction columns populated (PLAN-07.9)', async () => {
+			const t1 = taskService.create({ name: 'Task A' });
+			const t2 = taskService.create({ name: 'Task B' });
+
+			llm.setFixture('prediction', {
+				predictions: [
+					{ reasoning: 'stub', taskId: t1.id, predicted_min_seconds: 600, predicted_max_seconds: 1200, confidence: 'high' },
+					{ reasoning: 'stub', taskId: t2.id, predicted_min_seconds: 300, predicted_max_seconds: 900, confidence: 'low' },
+				],
+			});
+			llm.setFixture('chunk_plan', {
+				reasoning: 'stub',
+				chunks: [
+					{
+						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						tasks: [
+							{ taskId: t1.id, label: 'Task A', isLocked: false },
+							{ taskId: t2.id, label: 'Task B', isLocked: false },
+						],
+					},
+				],
+			});
+
+			await planService.generatePlan('2026-04-07');
+
+			const rows = db.select().from(chunkTasks).orderBy(asc(chunkTasks.sortOrder)).all();
+			expect(rows.length).toBe(2);
+
+			const rowA = rows.find(r => r.taskId === t1.id);
+			const rowB = rows.find(r => r.taskId === t2.id);
+			expect(rowA?.predictedMinSeconds).toBe(600);
+			expect(rowA?.predictedMaxSeconds).toBe(1200);
+			expect(rowA?.predictedConfidence).toBe('high');
+			expect(rowB?.predictedMinSeconds).toBe(300);
+			expect(rowB?.predictedMaxSeconds).toBe(900);
+			expect(rowB?.predictedConfidence).toBe('low');
+		});
+
+		it('both LLM calls outside transaction: plan LLM failure leaves DB untouched (PLAN-07.10, Pitfall 4)', async () => {
+			const t1 = taskService.create({ name: 'Task A' });
+			const prevChunkId = taskService.getById(t1.id)?.chunkId ?? null;
+
+			// Prediction succeeds
+			llm.setFixture('prediction', {
+				predictions: [
+					{ reasoning: 'stub', taskId: t1.id, predicted_min_seconds: 600, predicted_max_seconds: 1200, confidence: 'high' },
+				],
+			});
+			// Plan call throws — no chunk_plan fixture means MockLlmProvider throws
+
+			await expect(planService.generatePlan('2026-04-07')).rejects.toThrow(
+				/No mock fixture registered for schema: chunk_plan/,
+			);
+
+			// DB state unchanged — no plan, no chunks, no chunk_tasks
+			expect(db.select().from(dailyPlans).all().length).toBe(0);
+			expect(db.select().from(chunkTasks).all().length).toBe(0);
+			expect(taskService.getById(t1.id)?.chunkId).toBe(prevChunkId);
+		});
 	});
 });
