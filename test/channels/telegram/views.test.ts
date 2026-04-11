@@ -4,6 +4,7 @@ import {
 	formatDuration,
 	formatTime,
 	formatDateTime,
+	formatCompletionWithDiff,
 	renderTasksView,
 	renderTaskDetailView,
 	renderTaskListText,
@@ -189,10 +190,10 @@ describe('renderDayPlanView', () => {
 	const planView: DailyPlanView = {
 		date: '2026-04-05',
 		chunks: [
-			{ label: 'Shower', startTime: '07:00', endTime: '07:30', isTaskSlot: false, status: 'completed', tasks: [] },
+			{ label: 'Shower', startTime: '07:00', endTime: '07:30', isTaskSlot: false, status: 'completed', tasks: [], slotDurationMinutes: 30, predictedSumMinutes: null },
 			{ label: 'Buy groceries', startTime: '07:30', endTime: '08:00', isTaskSlot: true, status: 'pending', tasks: [
-				{ label: 'Buy groceries', isLocked: true, status: 'pending' },
-			] },
+				{ label: 'Buy groceries', isLocked: true, status: 'pending', predictedMaxSeconds: null, predictedConfidence: null },
+			], slotDurationMinutes: 30, predictedSumMinutes: null },
 		],
 	};
 
@@ -264,11 +265,13 @@ describe('renderCurrentChunkView', () => {
 			startTime: '10:00',
 			endTime: '12:00',
 			tasks: [
-				{ label: 'Write report', status: 'active', isLocked: false },
-				{ label: 'Review PR', status: 'pending', isLocked: true },
-				{ label: 'Reply to email', status: 'completed', isLocked: false },
-				{ label: 'Cancelled meeting', status: 'skipped', isLocked: false },
+				{ label: 'Write report', status: 'active', isLocked: false, predictedMaxSeconds: null, predictedConfidence: null },
+				{ label: 'Review PR', status: 'pending', isLocked: true, predictedMaxSeconds: null, predictedConfidence: null },
+				{ label: 'Reply to email', status: 'completed', isLocked: false, predictedMaxSeconds: null, predictedConfidence: null },
+				{ label: 'Cancelled meeting', status: 'skipped', isLocked: false, predictedMaxSeconds: null, predictedConfidence: null },
 			],
+			slotDurationMinutes: 120,
+			predictedSumMinutes: null,
 		},
 		nextChunkStartTime: null,
 	};
@@ -299,7 +302,7 @@ describe('renderCurrentChunkView', () => {
 	it('Case A with zero tasks: renders "No tasks in this chunk." italic', () => {
 		const view: CurrentChunkView = {
 			...baseView,
-			chunk: { ...baseView.chunk!, tasks: [] },
+			chunk: { ...baseView.chunk!, tasks: [], slotDurationMinutes: 120, predictedSumMinutes: null },
 		};
 		const result = renderCurrentChunkView(view);
 		expect(result).toContain('<b>-- Day Plan --</b>');
@@ -349,7 +352,9 @@ describe('renderCurrentChunkView', () => {
 				label: '<bad>',
 				startTime: '10:00',
 				endTime: '12:00',
-				tasks: [{ label: '<evil>', status: 'pending', isLocked: false }],
+				tasks: [{ label: '<evil>', status: 'pending', isLocked: false, predictedMaxSeconds: null, predictedConfidence: null }],
+				slotDurationMinutes: 120,
+				predictedSumMinutes: null,
 			},
 			nextChunkStartTime: null,
 		};
@@ -430,5 +435,126 @@ describe('renderCurrentChunkTasksView', () => {
 		const result = renderCurrentChunkTasksView(view);
 		expect(result).toContain('&lt;bad&gt;');
 		expect(result).not.toContain('<bad>');
+	});
+});
+
+describe('Phase 10: renderCurrentChunkView prediction surface', () => {
+	function makeView(overrides: {
+		taskPredictedMaxSeconds?: number | null;
+		taskConfidence?: 'low' | 'medium' | 'high' | null;
+		slotDurationMinutes?: number;
+		predictedSumMinutes?: number | null;
+	} = {}): CurrentChunkView {
+		return {
+			date: '2026-04-07',
+			branchName: 'morning',
+			chunk: {
+				label: 'Deep work',
+				startTime: '09:00',
+				endTime: '10:30',
+				tasks: [
+					{
+						label: 'Write report',
+						status: 'pending',
+						isLocked: false,
+						predictedMaxSeconds: 'taskPredictedMaxSeconds' in overrides ? overrides.taskPredictedMaxSeconds! : 1500,
+						predictedConfidence: 'taskConfidence' in overrides ? overrides.taskConfidence! : 'high',
+					},
+				],
+				slotDurationMinutes: overrides.slotDurationMinutes ?? 90,
+				predictedSumMinutes: 'predictedSumMinutes' in overrides ? overrides.predictedSumMinutes! : 25,
+			},
+			nextChunkStartTime: null,
+		};
+	}
+
+	it('renders prediction annotation per task (PLAN-07.22)', () => {
+		const view = makeView({ taskPredictedMaxSeconds: 1500, taskConfidence: 'high' });
+		const out = renderCurrentChunkView(view);
+		expect(out).toContain(' ~25min (high)');
+	});
+
+	it('omits annotation when prediction null (PLAN-07.23)', () => {
+		const view = makeView({ taskPredictedMaxSeconds: null, taskConfidence: null, predictedSumMinutes: null });
+		const out = renderCurrentChunkView(view);
+		// No `~Xmin (conf)` suffix on the task line
+		expect(out).not.toMatch(/Write report\S* ~\d+min/);
+		// Task name still appears
+		expect(out).toContain('Write report');
+	});
+
+	it('renders chunk rollup with slot and predicted sum (PLAN-07.24)', () => {
+		const view = makeView({ slotDurationMinutes: 90, predictedSumMinutes: 75 });
+		const out = renderCurrentChunkView(view);
+		// U+00B7 middle dot separator. The exact byte is important.
+		expect(out).toContain('90min slot \u00B7 ~75min predicted');
+	});
+
+	it('rollup omits predicted half when all tasks have null predictions (PLAN-07.25)', () => {
+		const view = makeView({
+			taskPredictedMaxSeconds: null,
+			taskConfidence: null,
+			slotDurationMinutes: 90,
+			predictedSumMinutes: null,
+		});
+		const out = renderCurrentChunkView(view);
+		expect(out).toContain('90min slot');
+		expect(out).not.toContain('predicted'); // no "\u00B7 ~Xmin predicted" half
+	});
+});
+
+describe('Phase 10: renderDayPlanView prediction surface (PLAN-07.26)', () => {
+	it('full plan view renders predictions on task lines + chunk rollup', () => {
+		const plan: DailyPlanView = {
+			date: '2026-04-07',
+			chunks: [
+				{
+					label: 'Morning',
+					startTime: '09:00',
+					endTime: '10:30',
+					isTaskSlot: true,
+					status: 'pending',
+					tasks: [
+						{ label: 'Task A', status: 'pending', isLocked: false, predictedMaxSeconds: 1500, predictedConfidence: 'high' },
+						{ label: 'Task B', status: 'pending', isLocked: false, predictedMaxSeconds: 900, predictedConfidence: 'medium' },
+					],
+					slotDurationMinutes: 90,
+					predictedSumMinutes: 40,
+				},
+			],
+		};
+
+		const out = renderDayPlanView(plan);
+		expect(out).toContain(' ~25min (high)');
+		expect(out).toContain(' ~15min (medium)');
+		expect(out).toContain('90min slot \u00B7 ~40min predicted');
+	});
+});
+
+describe('Phase 10: formatCompletionWithDiff', () => {
+	it('emits the diff line with positive drift (PLAN-07.27)', () => {
+		const out = formatCompletionWithDiff('Write report', 42, 1920, 1500, 'high');
+		// actual = 1920s = 32 min, predicted max = 1500s = 25 min, drift = +7
+		expect(out).toContain('Done: Write report (#42)');
+		expect(out).toContain('Predicted ~25min \u00B7 Actual 32min (+7).');
+	});
+
+	it('omits diff line when prediction is null (PLAN-07.28)', () => {
+		const out = formatCompletionWithDiff('Write report', 42, 1920, null, null);
+		expect(out).toBe('Done: Write report (#42)');
+		expect(out).not.toContain('Predicted');
+	});
+
+	it('handles negative drift correctly (PLAN-07.29)', () => {
+		// actual 20 min (1200s), predicted max 25 min (1500s) -> drift = -5
+		const out = formatCompletionWithDiff('Write report', 42, 1200, 1500, 'high');
+		expect(out).toContain('(-5)');
+		expect(out).not.toContain('(+-5)');
+		expect(out).not.toContain('(+-');
+	});
+
+	it('handles zero drift as +0', () => {
+		const out = formatCompletionWithDiff('Write report', 42, 1500, 1500, 'high');
+		expect(out).toContain('(+0)');
 	});
 });
