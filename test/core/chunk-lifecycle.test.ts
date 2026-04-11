@@ -1,19 +1,24 @@
 import { eq } from 'drizzle-orm';
+import { format } from 'date-fns';
 import { describe, expect, it, vi } from 'vitest';
 import { CheckInService } from '../../src/core/check-in-service.js';
 import { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
+import { PredictionService } from '../../src/core/prediction-service.js';
 import { TaskService } from '../../src/core/task-service.js';
 import { dailyPlans, planChunks, tasks } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { createTestDb } from '../helpers/db.js';
+
+const TODAY = format(new Date(), 'yyyy-MM-dd');
 
 function makeService(now?: () => Date) {
 	const db = createTestDb();
 	const llm = new MockLlmProvider();
 	const dayTreeService = new DayTreeService(db, llm);
 	const taskService = new TaskService(db);
-	const dailyPlanService = new DailyPlanService(db, dayTreeService, taskService, llm);
+	const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
+	const dailyPlanService = new DailyPlanService(db, dayTreeService, taskService, llm, predictionService);
 	const service = new CheckInService({
 		llmProvider: llm,
 		dayTreeService,
@@ -31,7 +36,7 @@ function seedPlanWithChunk(db: ReturnType<typeof createTestDb>) {
 	// Insert a daily plan + one chunk + 2 attached tasks
 	db.insert(dailyPlans)
 		.values({
-			date: '2026-04-07',
+			date: TODAY,
 			status: 'active',
 		})
 		.run();
@@ -160,7 +165,7 @@ describe('CheckInService.runBufferEndDisposition (PLAN-05)', () => {
 	it('empty chunk -- chunk with no tasks transitions to completed without LLM call', async () => {
 		const { service, db, llm } = makeService();
 		// Insert an empty chunk
-		db.insert(dailyPlans).values({ date: '2026-04-07', status: 'active' }).run();
+		db.insert(dailyPlans).values({ date: TODAY, status: 'active' }).run();
 		const planRow = db.select().from(dailyPlans).all()[0];
 		db.insert(planChunks)
 			.values({
@@ -187,13 +192,13 @@ describe('CheckInService.runBufferEndDisposition (PLAN-05)', () => {
 	it('tick dispatches buffer-end disposition past 50% buffer (Warning 6 wiring guard)', async () => {
 		// The fixed instant `now` exists ENTIRELY past the buffer window for the seeded
 		// 08:00-10:00 chunk: end=10:00, buffer = 1h, bufferEnd = 11:00. Pick now=11:30 → past.
-		const mockNow = new Date('2026-04-07T11:30:00');
+		const mockNow = new Date(`${TODAY}T11:30:00`);
 		const { service, db, llm } = makeService(() => mockNow);
 
 		// Seed plan + chunk + 2 pending tasks via the same helper.
 		const chunkId = seedPlanWithChunk(db);
 		// Mark plan as started so tick() considers it active (recomputeFromLastCheckIn path).
-		db.update(dailyPlans).set({ startedAt: '2026-04-07T08:00:00' }).run();
+		db.update(dailyPlans).set({ startedAt: `${TODAY}T08:00:00` }).run();
 		const taskRows = db.select().from(tasks).all();
 
 		llm.setFixture('buffer_end_disposition', {

@@ -7,6 +7,7 @@ import { CheckInService } from './core/check-in-service.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
 import { DayTreeService } from './core/day-tree-service.js';
 import { IntentClassifierService } from './core/intent-classifier.js';
+import { PredictionService } from './core/prediction-service.js';
 import { WakeStateService } from './core/wake-state.js';
 import type { StitchContext } from './channels/telegram/types.js';
 import { type AppConfig, loadConfig } from './config.js';
@@ -60,8 +61,30 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	const dayTreeService = new DayTreeService(db, llmProvider);
 	app.decorate('dayTreeService', dayTreeService);
 
-	// Daily plan service
-	const dailyPlanService = new DailyPlanService(db, dayTreeService, taskService, llmProvider);
+	// Phase 10 (D-01): PredictionService — the "predict" half of predict-then-plan.
+	// Constructed BEFORE DailyPlanService because DailyPlanService depends on it.
+	// NO dailyPlanService dependency in the other direction (Pitfall 5 cycle guard).
+	const predictionService = new PredictionService(
+		db,
+		taskService,
+		dayTreeService,
+		llmProvider,
+		// Fastify's logger is structurally compatible with pino's Logger interface
+		// but TypeScript considers them distinct. Cast is safe — same pattern used
+		// for CheckInService/WakeStateService below.
+		app.log as unknown as import('pino').Logger,
+	);
+	app.decorate('predictionService', predictionService);
+
+	// Daily plan service — Phase 10 adds predictionService as the 5th parameter
+	// so generatePlan can run predict-then-plan (PHASE 1.5 before PHASE 2).
+	const dailyPlanService = new DailyPlanService(
+		db,
+		dayTreeService,
+		taskService,
+		llmProvider,
+		predictionService,
+	);
 	app.decorate('dailyPlanService', dailyPlanService);
 
 	// Intent classifier service (Phase 08.4)

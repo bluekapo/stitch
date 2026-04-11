@@ -1,12 +1,16 @@
 import { eq } from 'drizzle-orm';
+import { format } from 'date-fns';
 import { describe, it, expect, vi } from 'vitest';
 import { CheckInService } from '../../src/core/check-in-service.js';
 import { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
+import { PredictionService } from '../../src/core/prediction-service.js';
 import { TaskService } from '../../src/core/task-service.js';
 import { checkIns, dailyPlans, planChunks, taskDurations, tasks } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { createTestDb } from '../helpers/db.js';
+
+const TODAY = format(new Date(), 'yyyy-MM-dd');
 
 function makeMockBot() {
 	const sendMessage = vi.fn().mockResolvedValue({ message_id: 12345 });
@@ -33,7 +37,8 @@ function makeService(
 	// NOTE: DailyPlanService remains positional (existing pattern in src/core/daily-plan-service.ts:13-19).
 	// New Phase 9 services (CheckInService, WakeStateService) use the options-object Pitfall 5 pattern.
 	// Do NOT migrate DailyPlanService in this phase — that is scope creep.
-	const dailyPlanService = new DailyPlanService(db, dayTreeService, taskService, llm);
+	const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
+	const dailyPlanService = new DailyPlanService(db, dayTreeService, taskService, llm, predictionService);
 	const bot = makeMockBot();
 	const service = new CheckInService({
 		llmProvider: llm,
@@ -54,7 +59,7 @@ describe('CheckInService -- ticker (PLAN-05)', () => {
 	it('ticker -- start() begins a 30s setInterval that calls tick', async () => {
 		vi.useFakeTimers();
 		try {
-			const fixedNow = new Date('2026-04-07T10:00:00Z');
+			const fixedNow = new Date(`${TODAY}T10:00:00Z`);
 			const { service, llm, db } = makeService({ now: () => fixedNow });
 			// Pre-seed nextCheckInAt by inserting a recent check_in row
 			db.insert(checkIns)
@@ -63,8 +68,8 @@ describe('CheckInService -- ticker (PLAN-05)', () => {
 					shouldSpeak: false,
 					messageText: null,
 					nextCheckMinutes: 1, // due ~immediately on first tick
-					dayAnchor: '2026-04-07',
-					createdAt: '2026-04-07 09:59:00',
+					dayAnchor: TODAY,
+					createdAt: `${TODAY} 09:59:00`,
 				})
 				.run();
 			llm.setFixture('check_in', {
@@ -200,7 +205,7 @@ describe('CheckInService -- cleanup TTL (PLAN-06)', () => {
 describe('CheckInService -- memory (PLAN-06, D-10)', () => {
 	it("memory -- today's check_ins rows are loaded into next call's prompt context", async () => {
 		const { service, llm, db } = makeService({
-			now: () => new Date('2026-04-07T15:00:00Z'),
+			now: () => new Date(`${TODAY}T15:00:00Z`),
 		});
 		// Pre-seed two check_ins for today
 		db.insert(checkIns)
@@ -209,8 +214,8 @@ describe('CheckInService -- memory (PLAN-06, D-10)', () => {
 				shouldSpeak: true,
 				messageText: 'Morning, Sir.',
 				nextCheckMinutes: 30,
-				dayAnchor: '2026-04-07',
-				createdAt: '2026-04-07 08:00:00',
+				dayAnchor: TODAY,
+				createdAt: `${TODAY} 08:00:00`,
 			})
 			.run();
 		db.insert(checkIns)
@@ -219,8 +224,8 @@ describe('CheckInService -- memory (PLAN-06, D-10)', () => {
 				shouldSpeak: true,
 				messageText: 'Halfway through morning duties.',
 				nextCheckMinutes: 30,
-				dayAnchor: '2026-04-07',
-				createdAt: '2026-04-07 09:30:00',
+				dayAnchor: TODAY,
+				createdAt: `${TODAY} 09:30:00`,
 			})
 			.run();
 
@@ -244,7 +249,7 @@ describe('CheckInService -- memory (PLAN-06, D-10)', () => {
 		// survive the round-trip from check_ins.message_text into the next
 		// runOracle user prompt verbatim so the oracle can reason about it.
 		const { service, llm, db } = makeService({
-			now: () => new Date('2026-04-07T18:00:00Z'),
+			now: () => new Date(`${TODAY}T18:00:00Z`),
 		});
 		db.insert(checkIns)
 			.values({
@@ -252,8 +257,8 @@ describe('CheckInService -- memory (PLAN-06, D-10)', () => {
 				shouldSpeak: true,
 				messageText: 'Sir, laundry has been pending for two hours now.',
 				nextCheckMinutes: 30,
-				dayAnchor: '2026-04-07',
-				createdAt: '2026-04-07 16:00:00',
+				dayAnchor: TODAY,
+				createdAt: `${TODAY} 16:00:00`,
 			})
 			.run();
 
@@ -274,7 +279,7 @@ describe('CheckInService -- memory (PLAN-06, D-10)', () => {
 
 describe('CheckInService -- restart (CHAN-03, D-21)', () => {
 	it('restart -- recomputes nextCheckInAt from last_check_in.created_at + last_check_in.next_check_minutes', async () => {
-		const fixedNow = new Date('2026-04-07T10:30:00Z');
+		const fixedNow = new Date(`${TODAY}T10:30:00Z`);
 		const { service, db } = makeService({ now: () => fixedNow });
 		db.insert(checkIns)
 			.values({
@@ -282,8 +287,8 @@ describe('CheckInService -- restart (CHAN-03, D-21)', () => {
 				shouldSpeak: true,
 				messageText: 'Morning, Sir.',
 				nextCheckMinutes: 30,
-				dayAnchor: '2026-04-07',
-				createdAt: '2026-04-07 10:00:00',
+				dayAnchor: TODAY,
+				createdAt: `${TODAY} 10:00:00`,
 			})
 			.run();
 
@@ -298,14 +303,14 @@ describe('CheckInService -- restart (CHAN-03, D-21)', () => {
 	});
 
 	it('restart back-online -- a restart check_in is queued when day is active', async () => {
-		const fixedNow = new Date('2026-04-07T10:30:00Z');
+		const fixedNow = new Date(`${TODAY}T10:30:00Z`);
 		const { service, llm, db } = makeService({ now: () => fixedNow });
 		// Active day plan with started_at set
 		db.insert(dailyPlans)
 			.values({
-				date: '2026-04-07',
+				date: TODAY,
 				status: 'active',
-				startedAt: '2026-04-07 06:30:00',
+				startedAt: `${TODAY} 06:30:00`,
 			})
 			.run();
 		llm.setFixture('check_in', {
@@ -342,7 +347,7 @@ describe('CheckInService -- Phase 10: buffer-end disposition writes task_duratio
 	function seedPlanWithChunk(db: ReturnType<typeof createTestDb>) {
 		db.insert(dailyPlans)
 			.values({
-				date: '2026-04-07',
+				date: TODAY,
 				status: 'active',
 			})
 			.run();

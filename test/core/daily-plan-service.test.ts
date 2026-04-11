@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb } from '../helpers/db.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
+import { PredictionService } from '../../src/core/prediction-service.js';
 import { TaskService } from '../../src/core/task-service.js';
 import { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import { dayTrees, chunkTasks, planChunks, dailyPlans, tasks } from '../../src/db/schema.js';
@@ -20,7 +21,8 @@ describe('DailyPlanService', () => {
 		llm = new MockLlmProvider();
 		dayTreeService = new DayTreeService(db, llm);
 		taskService = new TaskService(db);
-		planService = new DailyPlanService(db, dayTreeService, taskService, llm);
+		const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
+		planService = new DailyPlanService(db, dayTreeService, taskService, llm, predictionService);
 
 		// Set up a day tree (direct DB insert to avoid LLM call)
 		db.insert(dayTrees).values({
@@ -431,7 +433,8 @@ describe('DailyPlanService', () => {
 		// throws "No mock fixture registered for schema: chunk_plan".
 		const failingLlm = new MockLlmProvider();
 		// (no setFixture call — failingLlm.complete will reject)
-		const failingPlanService = new DailyPlanService(db, dayTreeService, taskService, failingLlm);
+		const failingPredService = new PredictionService(db, taskService, dayTreeService, failingLlm);
+		const failingPlanService = new DailyPlanService(db, dayTreeService, taskService, failingLlm, failingPredService);
 
 		// Step 3: Attempt regenerate, expect rejection
 		await expect(failingPlanService.generatePlan('2026-04-07')).rejects.toThrow(
