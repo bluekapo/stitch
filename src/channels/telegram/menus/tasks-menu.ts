@@ -2,10 +2,13 @@ import { Menu } from '@grammyjs/menu';
 import type { CheckInService } from '../../../core/check-in-service.js';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { TaskService } from '../../../core/task-service.js';
+import type { StitchDb } from '../../../db/index.js';
 import type { TaskListItem } from '../../../types/task.js';
 import type { StitchContext } from '../types.js';
+import { readPredictionFromDb } from '../handlers/text-router.js';
 import { buildCurrentChunkTasksView } from '../view-builders.js';
 import {
+	formatCompletionWithDiff,
 	renderCurrentChunkTasksView,
 	renderHubView,
 	renderTaskDetailView,
@@ -57,6 +60,7 @@ function buildTaskDetailMenu(
 	taskService: TaskService,
 	renderParentText: () => string,
 	checkInService?: CheckInService, // Phase 9 D-05.4 (Blocker 4)
+	db?: StitchDb, // Phase 10 D-18: prediction lookup for completion diff
 ): Menu<StitchContext> {
 	return new Menu<StitchContext>(menuId).dynamic((ctx, range) => {
 		const taskId = ctx.match;
@@ -147,8 +151,20 @@ function buildTaskDetailMenu(
 				})
 				.text({ text: 'Complete', payload: String(task.id) }, async (ctx) => {
 					try {
+						const hadTimer = !!task.timerStartedAt;
+						const pred = readPredictionFromDb(db, task.id);
+						let actualSeconds = 0;
+						if (hadTimer) {
+							actualSeconds = taskService.stopTimer(task.id);
+						}
 						taskService.update(task.id, { status: 'completed' });
 						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
+
+						if (hadTimer) {
+							const diffText = formatCompletionWithDiff(task.name, task.id, actualSeconds, pred.predictedMaxSeconds, pred.predictedConfidence);
+							await ctx.answerCallbackQuery(diffText.replace('\n', ' \u2014 '));
+						}
+
 						// biome-ignore lint: back() required for dynamic submenu nav
 						ctx.menu.back();
 						await safeEditMessageText(ctx, renderParentText());
@@ -164,8 +180,20 @@ function buildTaskDetailMenu(
 			range
 				.text({ text: 'Complete', payload: String(task.id) }, async (ctx) => {
 					try {
+						const hadTimer = !!task.timerStartedAt;
+						const pred = readPredictionFromDb(db, task.id);
+						let actualSeconds = 0;
+						if (hadTimer) {
+							actualSeconds = taskService.stopTimer(task.id);
+						}
 						taskService.update(task.id, { status: 'completed' });
 						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
+
+						if (hadTimer) {
+							const diffText = formatCompletionWithDiff(task.name, task.id, actualSeconds, pred.predictedMaxSeconds, pred.predictedConfidence);
+							await ctx.answerCallbackQuery(diffText.replace('\n', ' \u2014 '));
+						}
+
 						// biome-ignore lint: back() required for dynamic submenu nav
 						ctx.menu.back();
 						await safeEditMessageText(ctx, renderParentText());
@@ -233,6 +261,7 @@ export function createTasksMenu(
 	taskService: TaskService,
 	dailyPlanService?: DailyPlanService,
 	checkInService?: CheckInService, // Phase 9 D-05.4 (Blocker 4)
+	db?: StitchDb, // Phase 10 D-18: prediction lookup for completion diff
 ): {
 	tasksMenu: Menu<StitchContext>;
 	taskDetailMenu: Menu<StitchContext>;
@@ -249,6 +278,7 @@ export function createTasksMenu(
 				buildCurrentChunkTasksView(taskService, dailyPlanService, new Date()),
 			),
 		checkInService,
+		db,
 	);
 
 	const taskDetailFromAll = buildTaskDetailMenu(
@@ -256,6 +286,7 @@ export function createTasksMenu(
 		taskService,
 		() => renderTasksView(taskService.list() as TaskListItem[]),
 		checkInService,
+		db,
 	);
 
 	// Main scoped tasks menu (Screen 3).

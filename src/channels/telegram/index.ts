@@ -63,6 +63,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		dailyPlanService,
 		dayTreeService,
 		checkInService,
+		db, // Phase 10 D-18: prediction lookup for completion diff
 	);
 
 	// /start command: send or refresh hub
@@ -111,6 +112,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 			dailyPlanService,
 			intentClassifierService,
 			checkInService, // Phase 9 D-05.4: forced check-in on task mutations
+			db, // Phase 10 D-18: prediction lookup for completion diff
 		});
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply, { parse_mode: 'HTML' });

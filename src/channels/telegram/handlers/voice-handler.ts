@@ -100,6 +100,7 @@ export function registerVoiceHandler(options: VoiceHandlerOptions): void {
 			dailyPlanService,
 			intentClassifierService,
 			checkInService, // Phase 9 D-05.4: forced check-in on task mutations
+			db, // Phase 10 D-18: prediction lookup for completion diff
 		});
 		if (result.reply) {
 			const reply = await ctx.reply(result.reply);

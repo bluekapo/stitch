@@ -1,4 +1,5 @@
 import { addDays, format } from 'date-fns';
+import { desc, eq } from 'drizzle-orm';
 import type { CheckInService } from '../../../core/check-in-service.js';
 import { resolveCurrentChunkAttachment } from '../../../core/current-chunk.js';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
@@ -9,8 +10,11 @@ import {
 } from '../../../core/intent-classifier.js';
 import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
+import type { StitchDb } from '../../../db/index.js';
+import { chunkTasks } from '../../../db/schema.js';
 import { buildFullDayPlanView } from '../view-builders.js';
 import {
+	formatCompletionWithDiff,
 	formatDuration,
 	renderDayPlanView,
 	renderTaskListText,
@@ -27,6 +31,33 @@ export interface TextRouterDeps {
 	// + catch-and-discard pattern so task actions never fail if the
 	// check-in service is missing or throws.
 	checkInService?: CheckInService;
+	// Phase 10 (D-18): DB access for reading chunk_tasks prediction columns
+	// at task completion time. Optional for backward compat with existing tests.
+	db?: StitchDb;
+}
+
+// Phase 10 (D-18): read the most recent chunk_tasks row for a task to
+// get its prediction columns. Used for the completion diff line.
+export function readPredictionFromDb(db: StitchDb | undefined, taskId: number): {
+	predictedMaxSeconds: number | null;
+	predictedConfidence: 'low' | 'medium' | 'high' | null;
+} {
+	if (!db) return { predictedMaxSeconds: null, predictedConfidence: null };
+	const row = db
+		.select({
+			max: chunkTasks.predictedMaxSeconds,
+			confidence: chunkTasks.predictedConfidence,
+		})
+		.from(chunkTasks)
+		.where(eq(chunkTasks.taskId, taskId))
+		.orderBy(desc(chunkTasks.id))
+		.limit(1)
+		.get();
+	if (!row) return { predictedMaxSeconds: null, predictedConfidence: null };
+	return {
+		predictedMaxSeconds: row.max ?? null,
+		predictedConfidence: (row.confidence ?? null) as 'low' | 'medium' | 'high' | null,
+	};
 }
 
 /**
@@ -93,10 +124,21 @@ export async function routeTextInput(
 			const id = Number(doneMatch[1]);
 			const task = taskService.getById(id);
 			if (!task) return { reply: 'Task not found.' };
-			if (task.timerStartedAt) taskService.stopTimer(id);
+
+			const hadTimer = !!task.timerStartedAt;
+			const pred = readPredictionFromDb(deps.db, id);
+
+			let actualSeconds = 0;
+			if (hadTimer) {
+				actualSeconds = taskService.stopTimer(id);
+			}
 			taskService.update(id, { status: 'completed' });
 			deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
-			return { reply: `Done: ${task.name} (#${task.id})` };
+
+			const reply = hadTimer
+				? formatCompletionWithDiff(task.name, task.id, actualSeconds, pred.predictedMaxSeconds, pred.predictedConfidence)
+				: `Done: ${task.name} (#${task.id})`;
+			return { reply };
 		}
 
 		// postpone <id>
@@ -220,10 +262,20 @@ export async function routeTextInput(
 				const target = taskService.getById(classified.task_id);
 				if (!target) return { reply: `Task #${classified.task_id} not found.` };
 				if (classified.action === 'done') {
-					if (target.timerStartedAt) taskService.stopTimer(target.id);
+					const hadTimer = !!target.timerStartedAt;
+					const pred = readPredictionFromDb(deps.db, target.id);
+
+					let actualSeconds = 0;
+					if (hadTimer) {
+						actualSeconds = taskService.stopTimer(target.id);
+					}
 					taskService.update(target.id, { status: 'completed' });
 					deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
-					return { reply: `Done: ${target.name} (#${target.id})` };
+
+					const reply = hadTimer
+						? formatCompletionWithDiff(target.name, target.id, actualSeconds, pred.predictedMaxSeconds, pred.predictedConfidence)
+						: `Done: ${target.name} (#${target.id})`;
+					return { reply };
 				}
 				if (classified.action === 'postpone') {
 					taskService.postpone(target.id);
