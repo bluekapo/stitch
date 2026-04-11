@@ -114,13 +114,23 @@ export function renderDayPlanView(
 			: '';
 		lines.push(`${statusIcon}<b>${chunk.startTime}-${chunk.endTime}</b> ${escapeHtml(chunk.label)}`);
 
+		// Phase 10 (D-16): chunk rollup sub-line.
+		const chunkRollup = chunk.predictedSumMinutes != null
+			? `  <i>${chunk.slotDurationMinutes}min slot \u00B7 ~${chunk.predictedSumMinutes}min predicted</i>`
+			: `  <i>${chunk.slotDurationMinutes}min slot</i>`;
+		lines.push(chunkRollup);
+
 		if (chunk.tasks.length > 0) {
 			for (const task of chunk.tasks) {
 				const lockIcon = task.isLocked ? ' \uD83D\uDD12' : '';
 				const taskStatus = task.status === 'completed' ? '\u2705 '
 					: task.status === 'active' ? '\u25B6 '
 					: '  ';
-				lines.push(`  ${taskStatus}${escapeHtml(task.label)}${lockIcon}`);
+				// Phase 10 (D-15): prediction suffix.
+				const predSuffix = task.predictedMaxSeconds != null
+					? ` ~${Math.round(task.predictedMaxSeconds / 60)}min (${task.predictedConfidence})`
+					: '';
+				lines.push(`  ${taskStatus}${escapeHtml(task.label)}${lockIcon}${predSuffix}`);
 			}
 		}
 		lines.push('');
@@ -164,8 +174,16 @@ export function renderCurrentChunkView(view: CurrentChunkView | undefined): stri
 		'',
 		`<b>Branch:</b> ${escapeHtml(view.branchName ?? '')}`,
 		`<b>Chunk:</b> <code>${view.chunk.startTime}-${view.chunk.endTime}</code> ${escapeHtml(view.chunk.label)}`,
-		'',
 	];
+
+	// Phase 10 (D-16): chunk rollup — `Nmin slot · ~Mmin predicted`
+	// or just `Nmin slot` when all tasks have null predictions.
+	// U+00B7 middle dot is the literal '\u00B7' character.
+	const rollup = view.chunk.predictedSumMinutes != null
+		? `<i>${view.chunk.slotDurationMinutes}min slot \u00B7 ~${view.chunk.predictedSumMinutes}min predicted</i>`
+		: `<i>${view.chunk.slotDurationMinutes}min slot</i>`;
+	lines.push(rollup);
+	lines.push('');
 
 	if (view.chunk.tasks.length === 0) {
 		lines.push('<i>No tasks in this chunk.</i>');
@@ -179,7 +197,11 @@ export function renderCurrentChunkView(view: CurrentChunkView | undefined): stri
 						? '\u23ED '
 						: '  ';
 			const lockIcon = task.isLocked ? ' \uD83D\uDD12' : '';
-			lines.push(`${statusIcon}${escapeHtml(task.label)}${lockIcon}`);
+			// Phase 10 (D-15): prediction suffix, ` ~25min (high)` — only when set.
+			const predSuffix = task.predictedMaxSeconds != null
+				? ` ~${Math.round(task.predictedMaxSeconds / 60)}min (${task.predictedConfidence})`
+				: '';
+			lines.push(`${statusIcon}${escapeHtml(task.label)}${lockIcon}${predSuffix}`);
 		}
 	}
 	return lines.join('\n');
@@ -288,5 +310,35 @@ export function renderTaskListText(tasks: TaskListItem[]): string {
 			return `${i + 1}. ${prefix}${task.name} (${task.status})`;
 		})
 		.join('\n');
+}
+
+/**
+ * Phase 10 (D-18): format a task completion message with prediction diff.
+ *
+ * Output shape:
+ *   Without prediction: `Done: {taskName} (#{taskId})`
+ *   With prediction:    `Done: {taskName} (#{taskId})
+ *                        Predicted ~25min \u00B7 Actual 32min (+7).`
+ *
+ * Plain text (no HTML). The middle-dot separator is U+00B7 (\u00B7).
+ * Drift is signed integer minutes: positive means over-ran (+7), negative
+ * means finished early (-3), zero means exactly matched (+0).
+ */
+export function formatCompletionWithDiff(
+	taskName: string,
+	taskId: number,
+	actualSeconds: number,
+	predictedMaxSeconds: number | null,
+	predictedConfidence: 'low' | 'medium' | 'high' | null,
+): string {
+	const base = `Done: ${taskName} (#${taskId})`;
+	if (predictedMaxSeconds == null) return base;
+	void predictedConfidence; // currently unused in D-18 format, reserved for future iteration
+
+	const predictedMin = Math.round(predictedMaxSeconds / 60);
+	const actualMin = Math.round(actualSeconds / 60);
+	const driftMin = actualMin - predictedMin;
+	const driftStr = driftMin >= 0 ? `+${driftMin}` : `${driftMin}`;
+	return `${base}\nPredicted ~${predictedMin}min \u00B7 Actual ${actualMin}min (${driftStr}).`;
 }
 
