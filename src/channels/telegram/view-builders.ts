@@ -7,6 +7,36 @@ import type {
 	DailyPlanView,
 } from '../../types/daily-plan.js';
 
+// Phase 10 Plan 05 Task 2: compute chunk rollup values (D-16).
+//
+// Parses HH:MM timestamps from the chunk shape (same-day assumption — 24h
+// rollover is out of scope for Phase 10). Sums predictedMaxSeconds across
+// non-null tasks. Returns predictedSumMinutes=null ONLY when EVERY task
+// has a null predictedMaxSeconds (D-06 full fall-through).
+function computeChunkRollup(
+	startTime: string,
+	endTime: string,
+	tasks: Array<{ predictedMaxSeconds: number | null }>,
+): { slotDurationMinutes: number; predictedSumMinutes: number | null } {
+	const [sh, sm] = startTime.split(':').map(Number);
+	const [eh, em] = endTime.split(':').map(Number);
+	const slotDurationMinutes = Math.max(0, eh * 60 + em - (sh * 60 + sm));
+
+	const anyPredicted = tasks.some((t) => t.predictedMaxSeconds != null);
+	if (!anyPredicted) {
+		return { slotDurationMinutes, predictedSumMinutes: null };
+	}
+
+	const totalSeconds = tasks.reduce(
+		(acc, t) => acc + (t.predictedMaxSeconds ?? 0),
+		0,
+	);
+	return {
+		slotDurationMinutes,
+		predictedSumMinutes: Math.round(totalSeconds / 60),
+	};
+}
+
 /**
  * Phase 08.3 view-builder bridge: shape DailyPlanService outputs into the pure
  * `CurrentChunkView` consumed by `renderCurrentChunkView` (Screen 1).
@@ -35,21 +65,36 @@ export function buildCurrentChunkView(
 	const current = getCurrentChunk(chunks, now);
 	const next = current ? null : getNextChunkStartTime(chunks, now);
 
+	if (!current) {
+		return {
+			date: plan.date,
+			branchName: null,
+			chunk: null,
+			nextChunkStartTime: next,
+		};
+	}
+
+	const mappedTasks = current.tasks.map((t) => ({
+		label: t.label,
+		status: t.status,
+		isLocked: t.isLocked,
+		// Phase 10 (D-15): propagate prediction fields for per-task suffix.
+		predictedMaxSeconds: t.predictedMaxSeconds ?? null,
+		predictedConfidence: t.predictedConfidence ?? null,
+	}));
+	const rollup = computeChunkRollup(current.startTime, current.endTime, mappedTasks);
+
 	return {
 		date: plan.date,
-		branchName: current?.branchName ?? null,
-		chunk: current
-			? {
-					label: current.label,
-					startTime: current.startTime,
-					endTime: current.endTime,
-					tasks: current.tasks.map((t) => ({
-						label: t.label,
-						status: t.status,
-						isLocked: t.isLocked,
-					})),
-				}
-			: null,
+		branchName: current.branchName ?? null,
+		chunk: {
+			label: current.label,
+			startTime: current.startTime,
+			endTime: current.endTime,
+			tasks: mappedTasks,
+			slotDurationMinutes: rollup.slotDurationMinutes,
+			predictedSumMinutes: rollup.predictedSumMinutes,
+		},
 		nextChunkStartTime: next,
 	};
 }
@@ -115,17 +160,26 @@ export function buildFullDayPlanView(
 
 	return {
 		date: plan.date,
-		chunks: chunks.map((c) => ({
-			label: c.label,
-			startTime: c.startTime,
-			endTime: c.endTime,
-			isTaskSlot: c.isTaskSlot,
-			status: c.status,
-			tasks: c.tasks.map((t) => ({
+		chunks: chunks.map((c) => {
+			const mappedTasks = c.tasks.map((t) => ({
 				label: t.label,
 				isLocked: t.isLocked,
 				status: t.status,
-			})),
-		})),
+				// Phase 10 (D-15):
+				predictedMaxSeconds: t.predictedMaxSeconds ?? null,
+				predictedConfidence: t.predictedConfidence ?? null,
+			}));
+			const rollup = computeChunkRollup(c.startTime, c.endTime, mappedTasks);
+			return {
+				label: c.label,
+				startTime: c.startTime,
+				endTime: c.endTime,
+				isTaskSlot: c.isTaskSlot,
+				status: c.status,
+				tasks: mappedTasks,
+				slotDurationMinutes: rollup.slotDurationMinutes,
+				predictedSumMinutes: rollup.predictedSumMinutes,
+			};
+		}),
 	};
 }
