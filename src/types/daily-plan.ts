@@ -52,12 +52,22 @@ export interface PlanChunkView {
 	isTaskSlot: boolean;
 	status: 'pending' | 'active' | 'completed' | 'skipped';
 	tasks: ChunkTaskView[];
+	// Phase 10 (D-16): chunk rollup `Nmin slot · Mmin predicted`.
+	// slotDurationMinutes is always computed from startTime/endTime — never null.
+	// predictedSumMinutes is null ONLY when every task in the chunk has a null
+	// predictedMaxSeconds (D-06 full fall-through). Partial sums are NOT null.
+	slotDurationMinutes: number;
+	predictedSumMinutes: number | null;
 }
 
 export interface ChunkTaskView {
 	label: string;
 	isLocked: boolean;
 	status: 'pending' | 'active' | 'completed' | 'skipped';
+	// Phase 10 (D-15): per-task prediction for inline `~Xmin (confidence)` suffix.
+	// Null when D-06 fall-through produced no prediction.
+	predictedMaxSeconds: number | null;
+	predictedConfidence: 'low' | 'medium' | 'high' | null;
 }
 
 /**
@@ -79,7 +89,13 @@ export interface CurrentChunkView {
 			label: string;
 			status: 'pending' | 'active' | 'completed' | 'skipped';
 			isLocked: boolean;
+			// Phase 10 (D-15):
+			predictedMaxSeconds: number | null;
+			predictedConfidence: 'low' | 'medium' | 'high' | null;
 		}>;
+		// Phase 10 (D-16):
+		slotDurationMinutes: number;
+		predictedSumMinutes: number | null;
 	} | null;
 	nextChunkStartTime: string | null; // HH:MM, only set when chunk === null AND a later chunk exists today
 }
