@@ -199,7 +199,7 @@ export async function routeTextInput(
 			});
 			return {
 				reply:
-					'Classification failed. Please try again or use an explicit command: `add <name>`, `tree edit <change>`, `list`.',
+					'Classification failed. Please try again or use an explicit command: add &lt;name&gt;, tree edit &lt;change&gt;, list.',
 			};
 		}
 

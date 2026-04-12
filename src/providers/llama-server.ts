@@ -54,7 +54,10 @@ export class LlamaServerProvider implements LlmProvider {
 				}
 
 				// Per D-15: Zod validation as second layer of defense
-				const parsed = JSON.parse(content);
+				// Strip <think>...</think> blocks — Qwen3/3.5 emits these even with
+				// enable_thinking:false (empty block) or when the model ignores the flag.
+				const cleaned = content.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+				const parsed = JSON.parse(cleaned);
 				const result = options.schema.safeParse(parsed);
 
 				if (result.success) {

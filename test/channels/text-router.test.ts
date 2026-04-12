@@ -488,7 +488,7 @@ describe('text-router classifier dispatch (Phase 08.4)', () => {
 		});
 
 		expect(result.reply).toContain('Classification failed');
-		expect(result.reply).toContain('add <name>');
+		expect(result.reply).toContain('add &lt;name&gt;');
 		expect(result.reply).toContain('tree edit');
 		// CRITICAL: D-35 fail-closed — no task was silently created
 		expect(taskService.list()).toHaveLength(0);
