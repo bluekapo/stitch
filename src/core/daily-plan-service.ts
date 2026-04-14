@@ -114,6 +114,7 @@ export class DailyPlanService {
 		// for free: if the LLM call rejects, the transaction never opens, and
 		// no DB state changes (the user's old chunkId attachments survive).
 		// =====================================================================
+		console.log('[plan-debug] prompt:\n', user);
 		const result = await this.llmProvider.complete({
 			messages: [
 				{ role: 'system', content: system },
@@ -125,6 +126,7 @@ export class DailyPlanService {
 			maxTokens: 2048,
 			thinking: false,
 		});
+		console.log('[plan-debug] llm result:', JSON.stringify(result, null, 2));
 
 		// Build set of valid task IDs from pending tasks (hallucination defense
 		// — Phase 07 decision: drop chunks the LLM invented for non-pending tasks)
