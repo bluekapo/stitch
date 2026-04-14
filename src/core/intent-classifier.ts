@@ -95,7 +95,8 @@ export class IntentClassifierService {
 			.join('\n');
 
 		const plan = this.dailyPlanService?.getTodayPlan();
-		const chunks = plan ? this.dailyPlanService!.getPlanWithChunks(plan.id).chunks : [];
+		const chunks =
+			plan && this.dailyPlanService ? this.dailyPlanService.getPlanWithChunks(plan.id).chunks : [];
 		const now = new Date();
 		const current = getCurrentChunk(chunks, now);
 

@@ -159,8 +159,13 @@ export async function routeTextInput(
 			taskService.postpone(id);
 			deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
 			const updated = taskService.getById(id);
+			if (!updated) {
+				throw new Error(
+					`text-router: expected task #${id} to exist after postpone() succeeded — getById returned undefined`,
+				);
+			}
 			return {
-				reply: `Postponed: ${updated!.name} (#${id}) -- ${updated!.postponeCount} times total`,
+				reply: `Postponed: ${updated.name} (#${id}) -- ${updated.postponeCount} times total`,
 			};
 		}
 
@@ -298,7 +303,12 @@ export async function routeTextInput(
 				if (classified.action === 'postpone') {
 					taskService.postpone(target.id);
 					deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
-					const updated = taskService.getById(target.id)!;
+					const updated = taskService.getById(target.id);
+					if (!updated) {
+						throw new Error(
+							`text-router: expected task #${target.id} to exist after postpone() succeeded — getById returned undefined`,
+						);
+					}
 					return {
 						reply: `Postponed: ${updated.name} (#${updated.id}) -- ${updated.postponeCount} times total`,
 					};
