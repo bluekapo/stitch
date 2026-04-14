@@ -114,7 +114,6 @@ export class DailyPlanService {
 		// for free: if the LLM call rejects, the transaction never opens, and
 		// no DB state changes (the user's old chunkId attachments survive).
 		// =====================================================================
-		console.log('[plan-debug] prompt:\n', user);
 		const result = await this.llmProvider.complete({
 			messages: [
 				{ role: 'system', content: system },
@@ -126,7 +125,6 @@ export class DailyPlanService {
 			maxTokens: 2048,
 			thinking: false,
 		});
-		console.log('[plan-debug] llm result:', JSON.stringify(result, null, 2));
 
 		// Build set of valid task IDs from pending tasks (hallucination defense
 		// — Phase 07 decision: drop chunks the LLM invented for non-pending tasks)
@@ -162,6 +160,11 @@ export class DailyPlanService {
 					.where(eq(tasks.id, t.id))
 					.run();
 			}
+
+			// 3a-bis. Regeneration: remove any existing plan for this date so the
+			// UNIQUE(date) constraint doesn't reject the insert below. Cascades
+			// (ON DELETE CASCADE on plan_chunks and chunk_tasks) clean up the rest.
+			this.db.delete(dailyPlans).where(eq(dailyPlans.date, date)).run();
 
 			// 3b. Insert the daily plan with dayTreeId FK
 			const [plan] = this.db.insert(dailyPlans)
