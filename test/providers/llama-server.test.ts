@@ -189,6 +189,32 @@ describe('LlamaServerProvider', () => {
 				}),
 			).rejects.toThrow('LLM returned empty content after all retries');
 		});
+
+		it('throws friendly "server unreachable" message when network error exhausts retries', async () => {
+			const provider = new LlamaServerProvider({
+				baseURL: 'http://localhost:8080',
+				model: 'test-model',
+				maxRetries: 1,
+			});
+
+			const connErr = Object.assign(new Error('Connection error.'), {
+				name: 'APIConnectionError',
+				cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+			});
+			const createMock = vi.fn().mockRejectedValue(connErr);
+
+			overrideClient(provider, createMock);
+
+			await expect(
+				provider.complete({
+					messages: [{ role: 'user', content: 'Analyze task' }],
+					schema: TaskAnalysisSchema,
+					schemaName: 'task-analysis',
+				}),
+			).rejects.toThrow(
+				'LLM server unreachable at http://localhost:8080. Is llama-server running?',
+			);
+		});
 	});
 });
 

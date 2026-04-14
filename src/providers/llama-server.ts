@@ -3,6 +3,15 @@ import type { z } from 'zod';
 import { toResponseFormat } from '../schemas/llm.js';
 import type { LlmCompletionOptions, LlmProvider } from './llm.js';
 
+/** Detect fetch-level connection failures so we can surface a friendlier message. */
+function isNetworkError(err: unknown): boolean {
+	if (!(err instanceof Error)) return false;
+	if (err.name === 'APIConnectionError' || err.name === 'APIConnectionTimeoutError') return true;
+	if (err.message === 'fetch failed') return true;
+	const code = (err as { cause?: { code?: string } })?.cause?.code;
+	return code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'ECONNRESET';
+}
+
 export class LlamaServerProvider implements LlmProvider {
 	private client: OpenAI;
 	private model: string;
@@ -78,6 +87,11 @@ export class LlamaServerProvider implements LlmProvider {
 					!(err instanceof Error && err.message.includes('Zod validation'))
 				) {
 					continue;
+				}
+				if (isNetworkError(err)) {
+					throw new Error(`LLM server unreachable at ${this.baseURL}. Is llama-server running?`, {
+						cause: err,
+					});
 				}
 				throw err;
 			}
