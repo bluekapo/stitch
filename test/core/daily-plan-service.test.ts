@@ -354,10 +354,14 @@ describe('DailyPlanService', () => {
 			});
 
 			const result = await planService.generatePlan('2026-04-05');
-			expect(result.chunks).toHaveLength(2);
+			// Phase 11 (D-04): Dinner (fixed branch) is synthesized -- 3 chunks total.
+			expect(result.chunks).toHaveLength(3);
 
-			const morningChunk = result.chunks[0];
-			const workChunk = result.chunks[1];
+			const morningChunk = result.chunks.find((c) => c.branchName === 'Morning duties');
+			const workChunk = result.chunks.find((c) => c.branchName === 'Day branch');
+			expect(morningChunk).toBeDefined();
+			expect(workChunk).toBeDefined();
+			if (!morningChunk || !workChunk) throw new Error('Chunks not found');
 
 			// Tasks 1 and 2 should be attached to morning chunk + 'Morning duties'
 			const t1Row = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
@@ -478,11 +482,14 @@ describe('DailyPlanService', () => {
 
 			// Should not throw
 			const result = await planService.generatePlan('2026-04-05');
-			expect(result.chunks).toHaveLength(1);
+			// Phase 11 (D-04): Dinner (fixed branch) is synthesized -- 2 chunks total.
+			expect(result.chunks).toHaveLength(2);
 
-			// Real task is attached
+			// Real task is attached to the Morning chunk (not the synthesized Dinner)
+			const morningChunk = result.chunks.find((c) => c.branchName === 'Morning duties');
+			expect(morningChunk).toBeDefined();
 			const t1Row = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
-			expect(t1Row?.chunkId).toBe(result.chunks[0].id);
+			expect(t1Row?.chunkId).toBe(morningChunk?.id);
 		});
 	});
 
@@ -767,8 +774,10 @@ describe('DailyPlanService', () => {
 
 			const result = await planService.generatePlan('2026-04-07');
 
-			expect(result.chunks.length).toBe(1);
+			// Phase 11 (D-04): Dinner (fixed branch) is synthesized -- 2 chunks total.
+			expect(result.chunks.length).toBe(2);
 
+			// chunk_tasks rows still only count the real task (synthesized chunk has no tasks).
 			const ctRows = db.select().from(chunkTasks).all();
 			expect(ctRows.length).toBe(1);
 			expect(ctRows[0].predictedMinSeconds).toBeNull();
@@ -857,5 +866,143 @@ describe('DailyPlanService', () => {
 			expect(db.select().from(chunkTasks).all().length).toBe(0);
 			expect(taskService.getById(t1.id)?.chunkId).toBe(prevChunkId);
 		});
+	});
+});
+
+describe('DailyPlanService -- informational chunks (D-04, D-07)', () => {
+	let db: StitchDb;
+	let llm: MockLlmProvider;
+	let dayTreeService: DayTreeService;
+	let taskService: TaskService;
+	let planService: DailyPlanService;
+
+	beforeEach(() => {
+		db = createTestDb();
+		llm = new MockLlmProvider();
+		dayTreeService = new DayTreeService(db, llm);
+		taskService = new TaskService(db);
+		const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
+		planService = new DailyPlanService(db, dayTreeService, taskService, llm, predictionService);
+
+		// 3 branches: Morning (task slot), Lunch (fixed), Evening (fixed)
+		db.insert(dayTrees)
+			.values({
+				tree: {
+					branches: [
+						{ name: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
+						{ name: 'Lunch', startTime: '12:00', endTime: '13:00', isTaskSlot: false },
+						{ name: 'Evening', startTime: '18:00', endTime: '20:00', isTaskSlot: false },
+					],
+				},
+			})
+			.run();
+	});
+
+	it('synthesizes empty chunks for fixed branches the LLM dropped', async () => {
+		const t1 = taskService.create({ name: 'Exercise' });
+
+		// LLM returns ONLY a Morning chunk -- no Lunch, no Evening
+		llm.setFixture('chunk_plan', {
+			reasoning: 'morning only',
+			chunks: [
+				{
+					branchName: 'Morning',
+					label: 'Morning tasks',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
+					tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
+				},
+			],
+		});
+
+		const plan = await planService.generatePlan('2026-04-14');
+
+		// Read back chunks in sortOrder
+		const chunks = db
+			.select()
+			.from(planChunks)
+			.where(eq(planChunks.planId, plan.id))
+			.orderBy(asc(planChunks.sortOrder))
+			.all();
+
+		// Three chunks exist (1 LLM + 2 synthesized fixed branches)
+		expect(chunks.length).toBe(3);
+
+		// Chronological ordering by startTime
+		expect(chunks[0].branchName).toBe('Morning');
+		expect(chunks[0].isTaskSlot).toBe(true);
+		expect(chunks[0].startTime).toBe('08:00');
+
+		expect(chunks[1].branchName).toBe('Lunch');
+		expect(chunks[1].isTaskSlot).toBe(false);
+		expect(chunks[1].startTime).toBe('12:00');
+		expect(chunks[1].endTime).toBe('13:00');
+
+		expect(chunks[2].branchName).toBe('Evening');
+		expect(chunks[2].isTaskSlot).toBe(false);
+		expect(chunks[2].startTime).toBe('18:00');
+		expect(chunks[2].endTime).toBe('20:00');
+
+		// chunkTasks counts: Morning has 1, Lunch and Evening have 0
+		const morningTasks = db
+			.select()
+			.from(chunkTasks)
+			.where(eq(chunkTasks.chunkId, chunks[0].id))
+			.all();
+		expect(morningTasks.length).toBe(1);
+
+		const lunchTasks = db
+			.select()
+			.from(chunkTasks)
+			.where(eq(chunkTasks.chunkId, chunks[1].id))
+			.all();
+		expect(lunchTasks.length).toBe(0);
+
+		const eveningTasks = db
+			.select()
+			.from(chunkTasks)
+			.where(eq(chunkTasks.chunkId, chunks[2].id))
+			.all();
+		expect(eveningTasks.length).toBe(0);
+	});
+
+	it('preserves LLM chunk ordering when synthesized chunks are spliced in (D-06)', async () => {
+		// LLM returns Morning AND Evening in correct order. Lunch is missing --
+		// synthesis should splice it between them chronologically.
+		const t1 = taskService.create({ name: 'Exercise' });
+
+		llm.setFixture('chunk_plan', {
+			reasoning: 'morning and evening',
+			chunks: [
+				{
+					branchName: 'Morning',
+					label: 'Morning tasks',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
+					tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
+				},
+				{
+					branchName: 'Evening',
+					label: 'Evening',
+					startTime: '18:00',
+					endTime: '20:00',
+					isTaskSlot: false,
+					tasks: [],
+				},
+			],
+		});
+
+		const plan = await planService.generatePlan('2026-04-14');
+		const chunks = db
+			.select()
+			.from(planChunks)
+			.where(eq(planChunks.planId, plan.id))
+			.orderBy(asc(planChunks.sortOrder))
+			.all();
+
+		expect(chunks.length).toBe(3);
+		expect(chunks.map((c) => c.branchName)).toEqual(['Morning', 'Lunch', 'Evening']);
 	});
 });
