@@ -486,3 +486,88 @@ describe('CheckInService -- Phase 10: buffer-end disposition writes task_duratio
 		expect(skipRow?.outcome).toBe('skipped');
 	});
 });
+
+describe('CheckInService -- memory poisoning (D-01, D-02)', () => {
+	it('loadTodaysCheckIns scopes by task lifetime — deleted task with reused name does not leak history', async () => {
+		const fixedNow = new Date(`${TODAY}T12:00:00Z`);
+		const { service, db, llm } = makeService({ now: () => fixedNow });
+
+		// Step 1: seed task A "laundry" at 09:00
+		db.insert(tasks)
+			.values({
+				name: 'laundry',
+				status: 'pending',
+				createdAt: `${TODAY} 09:00:00`,
+				updatedAt: `${TODAY} 09:00:00`,
+			})
+			.run();
+		const taskARow = db.select().from(tasks).where(eq(tasks.name, 'laundry')).get();
+		expect(taskARow).toBeDefined();
+
+		// Step 2: seed 2 stale check_in rows referencing the laundry task
+		db.insert(checkIns)
+			.values({
+				triggerReason: 'scheduled',
+				shouldSpeak: true,
+				messageText: '"The laundry task is overdue, Sir."',
+				nextCheckMinutes: 30,
+				dayAnchor: TODAY,
+				createdAt: `${TODAY} 10:00:00`,
+			})
+			.run();
+		db.insert(checkIns)
+			.values({
+				triggerReason: 'scheduled',
+				shouldSpeak: true,
+				messageText: '"The laundry task is overdue, Sir."',
+				nextCheckMinutes: 30,
+				dayAnchor: TODAY,
+				createdAt: `${TODAY} 10:30:00`,
+			})
+			.run();
+
+		// Step 3: delete task A (check_ins have no FK to tasks — rows remain as orphans)
+		db.delete(tasks).where(eq(tasks.id, taskARow!.id)).run();
+
+		// Step 4: seed task B with same name at 11:00 (after the stale check-ins)
+		db.insert(tasks)
+			.values({
+				name: 'laundry',
+				status: 'pending',
+				createdAt: `${TODAY} 11:00:00`,
+				updatedAt: `${TODAY} 11:00:00`,
+			})
+			.run();
+
+		// Step 5: configure LLM fixture
+		llm.setFixture('check_in', {
+			should_speak: false,
+			message: null,
+			next_check_minutes: 30,
+		});
+
+		// Step 6: spy on llm.complete to capture the userPrompt
+		const completeSpy = vi.spyOn(llm, 'complete');
+
+		// Step 7: trigger a forced check-in
+		await service.forceCheckIn('scheduled');
+
+		// Step 8 + 9 + 10: inspect captured userPrompt
+		expect(completeSpy).toHaveBeenCalledTimes(1);
+		const callArgs = completeSpy.mock.calls[0][0];
+		const userMessage = callArgs.messages.find(
+			(m: { role: string; content: string }) => m.role === 'user',
+		);
+		expect(userMessage).toBeDefined();
+		const userPrompt: string = userMessage!.content;
+
+		// Memory poisoning guard: stale messageText must NOT leak
+		expect(userPrompt).not.toContain('"The laundry task is overdue, Sir."');
+		expect(userPrompt).not.toContain(`${TODAY} 10:00:00`);
+		expect(userPrompt).not.toContain(`${TODAY} 10:30:00`);
+
+		// Sanity: new task IS in the prompt
+		expect(userPrompt).toContain('All pending tasks:');
+		expect(userPrompt).toContain('"laundry"');
+	});
+});

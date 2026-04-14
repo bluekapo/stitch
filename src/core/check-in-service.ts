@@ -266,7 +266,16 @@ export class CheckInService {
 		const chunks = todayPlan ? this.dailyPlanService.getPlanWithChunks(todayPlan.id).chunks : [];
 		const currentChunk = getCurrentChunk(chunks, this.now());
 
-		const todaysCheckIns = this.loadTodaysCheckIns();
+		// D-01 / D-03: scope check-in memory to the lifetime of currently-pending tasks.
+		// Compute MIN(createdAt) across pending+active tasks; pass null when no pending
+		// tasks exist to preserve wake/restart behavior on a fresh day.
+		const earliestPendingCreatedAt = allTasks
+			.filter((t) => t.status === 'pending' || t.status === 'active')
+			.reduce<string | null>((min, t) => {
+				if (min === null || t.createdAt < min) return t.createdAt;
+				return min;
+			}, null);
+		const todaysCheckIns = this.loadTodaysCheckIns(earliestPendingCreatedAt);
 
 		const userPrompt = buildCheckInUserPrompt({
 			triggerReason: reason,
@@ -367,12 +376,31 @@ export class CheckInService {
 	// Memory loading (D-10)
 	// ==========================================================
 
-	private loadTodaysCheckIns(): CheckInRow[] {
+	/**
+	 * Phase 11 (D-01, D-03): scope check-in memory to the lifetime of currently-pending tasks.
+	 *
+	 * Bug fixed: dayAnchor-only filter leaked stale messageText referencing deleted tasks
+	 * into a new task with the same name (memory poisoning).
+	 *
+	 * D-03 forbids schema changes (no task_id on check_ins). Temporal scoping is the
+	 * semantically equivalent no-migration fix: a check-in row's messageText can only
+	 * reference tasks that existed at write time. If every currently-pending task was
+	 * created AFTER row R, then R cannot reference any current task — drop it.
+	 *
+	 * @param earliestPendingTaskCreatedAt MIN(createdAt) across pending+active tasks,
+	 *        or null when no pending tasks exist (then no cutoff is applied — preserves
+	 *        wake/restart behavior on a fresh day).
+	 */
+	private loadTodaysCheckIns(earliestPendingTaskCreatedAt: string | null): CheckInRow[] {
 		const today = format(this.now(), 'yyyy-MM-dd');
+		const conditions = [eq(checkIns.dayAnchor, today)];
+		if (earliestPendingTaskCreatedAt !== null) {
+			conditions.push(sql`${checkIns.createdAt} >= ${earliestPendingTaskCreatedAt}`);
+		}
 		return this.db
 			.select()
 			.from(checkIns)
-			.where(eq(checkIns.dayAnchor, today))
+			.where(and(...conditions))
 			.orderBy(checkIns.createdAt)
 			.all() as CheckInRow[];
 	}
