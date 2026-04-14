@@ -14,6 +14,7 @@ import type { StitchDb } from '../../../db/index.js';
 import { chunkTasks } from '../../../db/schema.js';
 import { buildFullDayPlanView } from '../view-builders.js';
 import {
+	escapeHtml,
 	formatCompletionWithDiff,
 	formatDuration,
 	renderDayPlanView,
@@ -158,7 +159,8 @@ export async function routeTextInput(
 			// tree show (most specific -- check first)
 			if (/^tree show$/i.test(text)) {
 				const tree = deps.dayTreeService.getTree();
-				if (!tree) return { reply: 'No day tree set. Use "tree <description>" to create one.' };
+				if (!tree)
+					return { reply: 'No day tree set. Use "tree &lt;description&gt;" to create one.' };
 				return { reply: renderTreeView(tree) };
 			}
 
@@ -302,7 +304,7 @@ export async function routeTextInput(
 				const tree = deps.dayTreeService.getTree();
 				if (!tree)
 					return {
-						reply: 'No day tree set, Sir. Use `tree <description>` to create one.',
+						reply: 'No day tree set, Sir. Use `tree &lt;description&gt;` to create one.',
 					};
 				return { reply: renderTreeView(tree) };
 			}
@@ -323,10 +325,10 @@ export async function routeTextInput(
 					const msg = (err as Error).message;
 					if (msg.includes('No day tree')) {
 						return {
-							reply: 'No day tree set, Sir. Use `tree <description>` to create one first.',
+							reply: 'No day tree set, Sir. Use `tree &lt;description&gt;` to create one first.',
 						};
 					}
-					return { reply: `Error: ${msg}` };
+					return { reply: `Error: ${escapeHtml(msg)}` };
 				}
 			}
 
@@ -342,6 +344,6 @@ export async function routeTextInput(
 		// error reply. The classifier-level catch above is more specific and
 		// handles classifier failures separately so D-35 fail-closed semantics
 		// are preserved.
-		return { reply: `Error: ${(err as Error).message}` };
+		return { reply: `Error: ${escapeHtml((err as Error).message)}` };
 	}
 }
