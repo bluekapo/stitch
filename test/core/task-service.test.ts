@@ -412,7 +412,7 @@ describe('TaskService', () => {
 	describe('checkOrphanedTimers', () => {
 		it('returns tasks with running timers', () => {
 			const t1 = service.create({ name: 'Task 1', isEssential: false });
-			const t2 = service.create({ name: 'Task 2', isEssential: false });
+			service.create({ name: 'Task 2', isEssential: false });
 			service.startTimer(t1.id);
 			const orphans = service.checkOrphanedTimers();
 			expect(orphans).toHaveLength(1);

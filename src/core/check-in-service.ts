@@ -358,7 +358,7 @@ export class CheckInService {
 			.limit(1)
 			.get() as CheckInRow | undefined;
 
-		if (!last || !last.nextCheckMinutes) {
+		if (!last?.nextCheckMinutes) {
 			this.nextCheckInAt = null;
 			return;
 		}
