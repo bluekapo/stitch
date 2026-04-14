@@ -112,8 +112,7 @@ describe('PredictionService', () => {
 					confidence: 'high',
 				},
 				{
-					reasoning:
-						'B: no history. Based on 0 rows and no drift signal, classifying as low.',
+					reasoning: 'B: no history. Based on 0 rows and no drift signal, classifying as low.',
 					taskId: t2.id,
 					predicted_min_seconds: 300,
 					predicted_max_seconds: 1500,
@@ -139,8 +138,7 @@ describe('PredictionService', () => {
 		llm.setFixture({
 			predictions: [
 				{
-					reasoning:
-						'A: real task. Based on 0 rows and no drift, classifying as low.',
+					reasoning: 'A: real task. Based on 0 rows and no drift, classifying as low.',
 					taskId: t1.id,
 					predicted_min_seconds: 300,
 					predicted_max_seconds: 900,
@@ -243,9 +241,7 @@ describe('PredictionService', () => {
 			],
 		});
 
-		await service.predictDurations([
-			{ id: t1.id, name: 'Write report', sourceTaskId: null },
-		]);
+		await service.predictDurations([{ id: t1.id, name: 'Write report', sourceTaskId: null }]);
 
 		const userMsg = llm.calls[0].messages.find((m) => m.role === 'user');
 		expect(userMsg?.content).toContain('25 min');
@@ -279,9 +275,7 @@ describe('PredictionService', () => {
 			],
 		});
 
-		await service.predictDurations([
-			{ id: t1.id, name: 'Task A', sourceTaskId: null },
-		]);
+		await service.predictDurations([{ id: t1.id, name: 'Task A', sourceTaskId: null }]);
 
 		const userMsg = llm.calls[0].messages.find((m) => m.role === 'user');
 		expect(userMsg?.content).toContain('COMPLETED');

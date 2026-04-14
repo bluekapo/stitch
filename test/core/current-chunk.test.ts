@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	getCurrentChunk,
 	getNextChunkStartTime,
-	resolveCurrentChunkAttachment,
 	type PlanChunkWithTasks,
+	resolveCurrentChunkAttachment,
 } from '../../src/core/current-chunk.js';
 import type { DailyPlanService } from '../../src/core/daily-plan-service.js';
 

@@ -1,6 +1,6 @@
 import { desc, eq, sql, sum } from 'drizzle-orm';
 import type { StitchDb } from '../db/index.js';
-import { chunkTasks, tasks, taskDurations } from '../db/schema.js';
+import { chunkTasks, taskDurations, tasks } from '../db/schema.js';
 import type { CreateTaskInput, TaskDetail, TaskListItem } from '../types/task.js';
 
 export class TaskService {
@@ -273,21 +273,22 @@ export class TaskService {
 	}
 
 	getRecurringTemplates(type: 'daily' | 'weekly') {
-		return this.db.select().from(tasks)
-			.where(eq(tasks.taskType, type))
-			.all();
+		return this.db.select().from(tasks).where(eq(tasks.taskType, type)).all();
 	}
 
 	hasInstanceForDate(sourceTaskId: number, dateStr: string): boolean {
-		const row = this.db.select({ id: tasks.id }).from(tasks)
-			.where(
-				sql`source_task_id = ${sourceTaskId} AND date(created_at) = ${dateStr}`,
-			)
+		const row = this.db
+			.select({ id: tasks.id })
+			.from(tasks)
+			.where(sql`source_task_id = ${sourceTaskId} AND date(created_at) = ${dateStr}`)
 			.get();
 		return !!row;
 	}
 
-	createInstance(template: { id: number; name: string; description: string | null; isEssential: boolean }, dateStr: string) {
+	createInstance(
+		template: { id: number; name: string; description: string | null; isEssential: boolean },
+		dateStr: string,
+	) {
 		return this.create({
 			name: template.name,
 			description: template.description ?? undefined,
@@ -298,10 +299,6 @@ export class TaskService {
 	}
 
 	checkOrphanedTimers() {
-		return this.db
-			.select()
-			.from(tasks)
-			.where(sql`timer_started_at IS NOT NULL`)
-			.all();
+		return this.db.select().from(tasks).where(sql`timer_started_at IS NOT NULL`).all();
 	}
 }

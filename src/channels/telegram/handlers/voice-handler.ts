@@ -66,7 +66,9 @@ export function registerVoiceHandler(options: VoiceHandlerOptions): void {
 			const downloadUrl = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
 			const response = await fetch(downloadUrl);
 			if (!response.ok) {
-				const reply = await ctx.reply('Voice transcription failed. Please try again or type your message.');
+				const reply = await ctx.reply(
+					'Voice transcription failed. Please try again or type your message.',
+				);
 				scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id, db);
 				return;
 			}
@@ -76,7 +78,9 @@ export function registerVoiceHandler(options: VoiceHandlerOptions): void {
 			const result = await sttProvider.transcribe(audioBuffer, 'audio/ogg');
 			transcribedText = result.text.trim();
 		} catch {
-			const reply = await ctx.reply('Voice transcription failed. Please try again or type your message.');
+			const reply = await ctx.reply(
+				'Voice transcription failed. Please try again or type your message.',
+			);
 			scheduleCleanup(ctx, chatId, voiceMsgId, reply.message_id, db);
 			return;
 		}

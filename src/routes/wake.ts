@@ -45,9 +45,8 @@ export async function wakeRoutes(fastify: FastifyInstance): Promise<void> {
 			}
 
 			// Get the WakeStateService from the decorator
-			const wakeStateService = (
-				fastify as unknown as { wakeStateService: WakeStateService }
-			).wakeStateService;
+			const wakeStateService = (fastify as unknown as { wakeStateService: WakeStateService })
+				.wakeStateService;
 			if (!wakeStateService) {
 				request.log.error('wakeStateService decorator missing');
 				return reply.code(500).send({ error: 'Internal Server Error' });

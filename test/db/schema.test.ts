@@ -272,7 +272,9 @@ describe('tasks table -- Phase 08.3 chunk_id + branch_name schema additions', ()
 		// biome-ignore lint/suspicious/noExplicitAny: inspect underlying sqlite
 		const sqlite = (db as any).$client as Database.Database;
 
-		const row = sqlite.prepare('SELECT id, chunk_id, branch_name FROM tasks WHERE id = 10').get() as {
+		const row = sqlite
+			.prepare('SELECT id, chunk_id, branch_name FROM tasks WHERE id = 10')
+			.get() as {
 			id: number;
 			chunk_id: number | null;
 			branch_name: string | null;
@@ -309,13 +311,17 @@ describe('tasks table -- Phase 08.3 chunk_id + branch_name schema additions', ()
 		`);
 
 		// Sanity: chunk_id is set
-		const before = sqlite.prepare('SELECT chunk_id FROM tasks WHERE id = 10').get() as { chunk_id: number | null };
+		const before = sqlite.prepare('SELECT chunk_id FROM tasks WHERE id = 10').get() as {
+			chunk_id: number | null;
+		};
 		expect(before.chunk_id).toBe(1);
 
 		// Delete the chunk -- ON DELETE SET NULL should null tasks.chunk_id
 		sqlite.exec('DELETE FROM plan_chunks WHERE id = 1');
 
-		const after = sqlite.prepare('SELECT chunk_id FROM tasks WHERE id = 10').get() as { chunk_id: number | null };
+		const after = sqlite.prepare('SELECT chunk_id FROM tasks WHERE id = 10').get() as {
+			chunk_id: number | null;
+		};
 		expect(after.chunk_id).toBeNull();
 	});
 });
@@ -647,9 +653,7 @@ describe('Phase 10 migration: task_durations + chunk_tasks prediction columns', 
 		// Verify all 3 rows survived with their data intact
 		const raw = new Database(dbPath);
 		const rows = raw
-			.prepare(
-				`SELECT id, task_id, duration_seconds, outcome FROM task_durations ORDER BY id`,
-			)
+			.prepare(`SELECT id, task_id, duration_seconds, outcome FROM task_durations ORDER BY id`)
 			.all() as {
 			id: number;
 			task_id: number;

@@ -7,7 +7,8 @@ describe('PredictionResponseSchema', () => {
 		const valid = {
 			predictions: [
 				{
-					reasoning: 'Three rows, tight cluster. Based on 3 rows and observed drift, classifying as high.',
+					reasoning:
+						'Three rows, tight cluster. Based on 3 rows and observed drift, classifying as high.',
 					taskId: 1,
 					predicted_min_seconds: 600,
 					predicted_max_seconds: 900,

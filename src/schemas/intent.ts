@@ -78,10 +78,7 @@ const PlanRegenerateBranch = z.object({
 const QueryViewBranch = z.object({
 	intent: z.enum(['task_query', 'tree_query', 'plan_view', 'unknown']),
 	confidence: z.number().min(0).max(1),
-	clarification: z
-		.string()
-		.optional()
-		.describe('Required for unknown intent or low confidence'),
+	clarification: z.string().optional().describe('Required for unknown intent or low confidence'),
 });
 
 export const ClassifierResponseSchema = z.discriminatedUnion('intent', [

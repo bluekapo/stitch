@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { MockLlmProvider } from '../../src/providers/mock.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { TaskParserService } from '../../src/core/task-parser.js';
+import { MockLlmProvider } from '../../src/providers/mock.js';
 
 describe('TaskParserService', () => {
 	let llm: MockLlmProvider;

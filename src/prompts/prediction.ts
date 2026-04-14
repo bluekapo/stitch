@@ -86,11 +86,7 @@ function formatDurationMin(seconds: number | null): string {
 	return `${Math.round(seconds / 60)} min`;
 }
 
-function formatPrediction(
-	min: number | null,
-	max: number | null,
-	conf: string | null,
-): string {
+function formatPrediction(min: number | null, max: number | null, conf: string | null): string {
 	if (min == null || max == null) return '(no prior prediction)';
 	return `predicted ${Math.round(min / 60)}-${Math.round(max / 60)} min (${conf ?? 'unknown'})`;
 }

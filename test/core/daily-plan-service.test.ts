@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createTestDb } from '../helpers/db.js';
-import { MockLlmProvider } from '../../src/providers/mock.js';
+import { asc, eq } from 'drizzle-orm';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
 import { PredictionService } from '../../src/core/prediction-service.js';
 import { TaskService } from '../../src/core/task-service.js';
-import { DailyPlanService } from '../../src/core/daily-plan-service.js';
-import { dayTrees, chunkTasks, planChunks, dailyPlans, tasks } from '../../src/db/schema.js';
-import { eq, asc } from 'drizzle-orm';
 import type { StitchDb } from '../../src/db/index.js';
+import { chunkTasks, dailyPlans, dayTrees, planChunks, tasks } from '../../src/db/schema.js';
+import { MockLlmProvider } from '../../src/providers/mock.js';
+import { createTestDb } from '../helpers/db.js';
 
 describe('DailyPlanService', () => {
 	let db: StitchDb;
@@ -25,15 +25,23 @@ describe('DailyPlanService', () => {
 		planService = new DailyPlanService(db, dayTreeService, taskService, llm, predictionService);
 
 		// Set up a day tree (direct DB insert to avoid LLM call)
-		db.insert(dayTrees).values({
-			tree: {
-				branches: [
-					{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
-					{ name: 'Day branch', startTime: '10:00', endTime: '18:00', isTaskSlot: true },
-					{ name: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
-				],
-			},
-		}).run();
+		db.insert(dayTrees)
+			.values({
+				tree: {
+					branches: [
+						{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
+						{ name: 'Day branch', startTime: '10:00', endTime: '18:00', isTaskSlot: true },
+						{
+							name: 'Dinner',
+							startTime: '18:00',
+							endTime: '19:00',
+							isTaskSlot: false,
+							items: [{ label: 'Dinner', type: 'fixed' as const }],
+						},
+					],
+				},
+			})
+			.run();
 	});
 
 	it('generates plan with milestone chunks from day tree', async () => {
@@ -44,18 +52,30 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning tasks', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning tasks',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [
 						{ taskId: t1.id, label: 'Exercise', isLocked: false },
 						{ taskId: t2.id, label: 'Shower', isLocked: false },
 					],
 				},
 				{
-					branchName: 'Day branch', label: 'Work block 1', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+					branchName: 'Day branch',
+					label: 'Work block 1',
+					startTime: '10:00',
+					endTime: '14:00',
+					isTaskSlot: true,
 					tasks: [{ taskId: t3.id, label: 'Code review', isLocked: true }],
 				},
 				{
-					branchName: 'Dinner', label: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false,
+					branchName: 'Dinner',
+					label: 'Dinner',
+					startTime: '18:00',
+					endTime: '19:00',
+					isTaskSlot: false,
 					tasks: [],
 				},
 			],
@@ -72,7 +92,9 @@ describe('DailyPlanService', () => {
 		expect(result.chunks[2].label).toBe('Dinner');
 
 		// Verify chunkTasks created in DB
-		const morningTasks = db.select().from(chunkTasks)
+		const morningTasks = db
+			.select()
+			.from(chunkTasks)
 			.where(eq(chunkTasks.chunkId, result.chunks[0].id))
 			.orderBy(asc(chunkTasks.sortOrder))
 			.all();
@@ -80,7 +102,9 @@ describe('DailyPlanService', () => {
 		expect(morningTasks[0].label).toBe('Exercise');
 		expect(morningTasks[1].label).toBe('Shower');
 
-		const workTasks = db.select().from(chunkTasks)
+		const workTasks = db
+			.select()
+			.from(chunkTasks)
 			.where(eq(chunkTasks.chunkId, result.chunks[1].id))
 			.all();
 		expect(workTasks).toHaveLength(1);
@@ -93,7 +117,11 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
 				},
 			],
@@ -117,11 +145,19 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
 				},
 				{
-					branchName: 'Dinner', label: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false,
+					branchName: 'Dinner',
+					label: 'Dinner',
+					startTime: '18:00',
+					endTime: '19:00',
+					isTaskSlot: false,
 					tasks: [],
 				},
 			],
@@ -130,12 +166,14 @@ describe('DailyPlanService', () => {
 
 		const result = await planService.generatePlan('2026-04-05');
 
-		const dinnerChunk = result.chunks.find(c => c.label === 'Dinner');
+		const dinnerChunk = result.chunks.find((c) => c.label === 'Dinner');
 		expect(dinnerChunk).toBeDefined();
 		expect(dinnerChunk!.isTaskSlot).toBe(false);
 
 		// Verify no chunkTasks for dinner chunk
-		const dinnerTasks = db.select().from(chunkTasks)
+		const dinnerTasks = db
+			.select()
+			.from(chunkTasks)
 			.where(eq(chunkTasks.chunkId, dinnerChunk!.id))
 			.all();
 		expect(dinnerTasks).toHaveLength(0);
@@ -147,7 +185,11 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Critical task', isLocked: true }],
 				},
 			],
@@ -156,7 +198,9 @@ describe('DailyPlanService', () => {
 
 		const result = await planService.generatePlan('2026-04-05');
 
-		const tasks = db.select().from(chunkTasks)
+		const tasks = db
+			.select()
+			.from(chunkTasks)
 			.where(eq(chunkTasks.chunkId, result.chunks[0].id))
 			.all();
 		expect(tasks).toHaveLength(1);
@@ -172,11 +216,22 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Day branch', label: 'Work block 1', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
-					tasks: [{ taskId: t1.id, label: 'Task 1', isLocked: false }, { taskId: t2.id, label: 'Task 2', isLocked: false }],
+					branchName: 'Day branch',
+					label: 'Work block 1',
+					startTime: '10:00',
+					endTime: '14:00',
+					isTaskSlot: true,
+					tasks: [
+						{ taskId: t1.id, label: 'Task 1', isLocked: false },
+						{ taskId: t2.id, label: 'Task 2', isLocked: false },
+					],
 				},
 				{
-					branchName: 'Day branch', label: 'Work block 2', startTime: '14:00', endTime: '18:00', isTaskSlot: true,
+					branchName: 'Day branch',
+					label: 'Work block 2',
+					startTime: '14:00',
+					endTime: '18:00',
+					isTaskSlot: true,
 					tasks: [{ taskId: t3.id, label: 'Task 3', isLocked: false }],
 				},
 			],
@@ -186,7 +241,7 @@ describe('DailyPlanService', () => {
 		const result = await planService.generatePlan('2026-04-05');
 
 		// Both chunks should have branchName='Day branch'
-		const dayCycleChunks = result.chunks.filter(c => c.branchName === 'Day branch');
+		const dayCycleChunks = result.chunks.filter((c) => c.branchName === 'Day branch');
 		expect(dayCycleChunks).toHaveLength(2);
 		expect(dayCycleChunks[0].label).toBe('Work block 1');
 		expect(dayCycleChunks[1].label).toBe('Work block 2');
@@ -198,7 +253,11 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [
 						{ taskId: t1.id, label: 'Real task', isLocked: false },
 						{ taskId: 999, label: 'Hallucinated task', isLocked: false },
@@ -210,7 +269,9 @@ describe('DailyPlanService', () => {
 
 		const result = await planService.generatePlan('2026-04-05');
 
-		const tasks = db.select().from(chunkTasks)
+		const tasks = db
+			.select()
+			.from(chunkTasks)
 			.where(eq(chunkTasks.chunkId, result.chunks[0].id))
 			.all();
 		// Only the real task should exist; hallucinated one dropped
@@ -233,7 +294,11 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
 				},
 			],
@@ -254,8 +319,7 @@ describe('DailyPlanService', () => {
 	it('generatePlan throws when no day tree exists', async () => {
 		db.delete(dayTrees).run();
 
-		await expect(planService.generatePlan('2026-04-05'))
-			.rejects.toThrow('No day tree found.');
+		await expect(planService.generatePlan('2026-04-05')).rejects.toThrow('No day tree found.');
 	});
 
 	describe('dual-write tasks.chunk_id + branch_name (Phase 08.3)', () => {
@@ -267,14 +331,22 @@ describe('DailyPlanService', () => {
 			llm.setFixture('chunk_plan', {
 				chunks: [
 					{
-						branchName: 'Morning duties', label: 'Morning tasks', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						branchName: 'Morning duties',
+						label: 'Morning tasks',
+						startTime: '08:00',
+						endTime: '10:00',
+						isTaskSlot: true,
 						tasks: [
 							{ taskId: t1.id, label: 'Exercise', isLocked: false },
 							{ taskId: t2.id, label: 'Shower', isLocked: false },
 						],
 					},
 					{
-						branchName: 'Day branch', label: 'Work block', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+						branchName: 'Day branch',
+						label: 'Work block',
+						startTime: '10:00',
+						endTime: '14:00',
+						isTaskSlot: true,
 						tasks: [{ taskId: t3.id, label: 'Code review', isLocked: true }],
 					},
 				],
@@ -308,7 +380,11 @@ describe('DailyPlanService', () => {
 			llm.setFixture('chunk_plan', {
 				chunks: [
 					{
-						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						branchName: 'Morning duties',
+						label: 'Morning',
+						startTime: '08:00',
+						endTime: '10:00',
+						isTaskSlot: true,
 						tasks: [
 							{ taskId: t1.id, label: 'Exercise', isLocked: false },
 							{ taskId: t2.id, label: 'Shower', isLocked: false },
@@ -333,7 +409,11 @@ describe('DailyPlanService', () => {
 			llm.setFixture('chunk_plan', {
 				chunks: [
 					{
-						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						branchName: 'Morning duties',
+						label: 'Morning',
+						startTime: '08:00',
+						endTime: '10:00',
+						isTaskSlot: true,
 						tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
 					},
 				],
@@ -352,7 +432,11 @@ describe('DailyPlanService', () => {
 			llm.setFixture('chunk_plan', {
 				chunks: [
 					{
-						branchName: 'Day branch', label: 'Day work', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+						branchName: 'Day branch',
+						label: 'Day work',
+						startTime: '10:00',
+						endTime: '14:00',
+						isTaskSlot: true,
 						tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
 					},
 				],
@@ -377,7 +461,11 @@ describe('DailyPlanService', () => {
 			llm.setFixture('chunk_plan', {
 				chunks: [
 					{
-						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						branchName: 'Morning duties',
+						label: 'Morning',
+						startTime: '08:00',
+						endTime: '10:00',
+						isTaskSlot: true,
 						tasks: [
 							{ taskId: t1.id, label: 'Real task', isLocked: false },
 							// Hallucinated id 0 -- should be dropped by validTaskIds filter
@@ -406,7 +494,11 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [
 						{ taskId: t1.id, label: 'Exercise', isLocked: false },
 						{ taskId: t2.id, label: 'Code review', isLocked: false },
@@ -434,7 +526,13 @@ describe('DailyPlanService', () => {
 		const failingLlm = new MockLlmProvider();
 		// (no setFixture call — failingLlm.complete will reject)
 		const failingPredService = new PredictionService(db, taskService, dayTreeService, failingLlm);
-		const failingPlanService = new DailyPlanService(db, dayTreeService, taskService, failingLlm, failingPredService);
+		const failingPlanService = new DailyPlanService(
+			db,
+			dayTreeService,
+			taskService,
+			failingLlm,
+			failingPredService,
+		);
 
 		// Step 3: Attempt regenerate, expect rejection
 		await expect(failingPlanService.generatePlan('2026-04-07')).rejects.toThrow(
@@ -465,11 +563,19 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
 				},
 				{
-					branchName: 'Day branch', label: 'Work', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+					branchName: 'Day branch',
+					label: 'Work',
+					startTime: '10:00',
+					endTime: '14:00',
+					isTaskSlot: true,
 					tasks: [
 						{ taskId: t2.id, label: 'Code review', isLocked: false },
 						{ taskId: t3.id, label: 'Write doc', isLocked: false },
@@ -493,11 +599,19 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [{ taskId: t2.id, label: 'Code review', isLocked: false }],
 				},
 				{
-					branchName: 'Day branch', label: 'Work', startTime: '10:00', endTime: '14:00', isTaskSlot: true,
+					branchName: 'Day branch',
+					label: 'Work',
+					startTime: '10:00',
+					endTime: '14:00',
+					isTaskSlot: true,
 					tasks: [
 						{ taskId: t1.id, label: 'Exercise', isLocked: false },
 						{ taskId: t3.id, label: 'Write doc', isLocked: false },
@@ -536,7 +650,11 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [
 						{ taskId: t1.id, label: 'Exercise', isLocked: false },
 						{ taskId: t2.id, label: 'Code review', isLocked: false },
@@ -556,7 +674,11 @@ describe('DailyPlanService', () => {
 		llm.setFixture('chunk_plan', {
 			chunks: [
 				{
-					branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+					branchName: 'Morning duties',
+					label: 'Morning',
+					startTime: '08:00',
+					endTime: '10:00',
+					isTaskSlot: true,
 					tasks: [{ taskId: t1.id, label: 'Exercise', isLocked: false }],
 				},
 			],
@@ -580,15 +702,31 @@ describe('DailyPlanService', () => {
 
 			llm.setFixture('prediction', {
 				predictions: [
-					{ reasoning: 'stub', taskId: t1.id, predicted_min_seconds: 600, predicted_max_seconds: 900, confidence: 'high' },
-					{ reasoning: 'stub', taskId: t2.id, predicted_min_seconds: 300, predicted_max_seconds: 600, confidence: 'medium' },
+					{
+						reasoning: 'stub',
+						taskId: t1.id,
+						predicted_min_seconds: 600,
+						predicted_max_seconds: 900,
+						confidence: 'high',
+					},
+					{
+						reasoning: 'stub',
+						taskId: t2.id,
+						predicted_min_seconds: 300,
+						predicted_max_seconds: 600,
+						confidence: 'medium',
+					},
 				],
 			});
 			llm.setFixture('chunk_plan', {
 				reasoning: 'stub plan',
 				chunks: [
 					{
-						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						branchName: 'Morning duties',
+						label: 'Morning',
+						startTime: '08:00',
+						endTime: '10:00',
+						isTaskSlot: true,
 						tasks: [
 							{ taskId: t1.id, label: 'Task A', isLocked: false },
 							{ taskId: t2.id, label: 'Task B', isLocked: false },
@@ -600,7 +738,7 @@ describe('DailyPlanService', () => {
 			const spy = vi.spyOn(llm, 'complete');
 			await planService.generatePlan('2026-04-07');
 
-			const schemaNames = spy.mock.calls.map(c => (c[0] as { schemaName: string }).schemaName);
+			const schemaNames = spy.mock.calls.map((c) => (c[0] as { schemaName: string }).schemaName);
 			const predIdx = schemaNames.indexOf('prediction');
 			const planIdx = schemaNames.indexOf('chunk_plan');
 			expect(predIdx).toBeGreaterThanOrEqual(0);
@@ -617,7 +755,11 @@ describe('DailyPlanService', () => {
 				reasoning: 'plan proceeds without prediction',
 				chunks: [
 					{
-						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						branchName: 'Morning duties',
+						label: 'Morning',
+						startTime: '08:00',
+						endTime: '10:00',
+						isTaskSlot: true,
 						tasks: [{ taskId: t1.id, label: 'Task A', isLocked: false }],
 					},
 				],
@@ -640,15 +782,31 @@ describe('DailyPlanService', () => {
 
 			llm.setFixture('prediction', {
 				predictions: [
-					{ reasoning: 'stub', taskId: t1.id, predicted_min_seconds: 600, predicted_max_seconds: 1200, confidence: 'high' },
-					{ reasoning: 'stub', taskId: t2.id, predicted_min_seconds: 300, predicted_max_seconds: 900, confidence: 'low' },
+					{
+						reasoning: 'stub',
+						taskId: t1.id,
+						predicted_min_seconds: 600,
+						predicted_max_seconds: 1200,
+						confidence: 'high',
+					},
+					{
+						reasoning: 'stub',
+						taskId: t2.id,
+						predicted_min_seconds: 300,
+						predicted_max_seconds: 900,
+						confidence: 'low',
+					},
 				],
 			});
 			llm.setFixture('chunk_plan', {
 				reasoning: 'stub',
 				chunks: [
 					{
-						branchName: 'Morning duties', label: 'Morning', startTime: '08:00', endTime: '10:00', isTaskSlot: true,
+						branchName: 'Morning duties',
+						label: 'Morning',
+						startTime: '08:00',
+						endTime: '10:00',
+						isTaskSlot: true,
 						tasks: [
 							{ taskId: t1.id, label: 'Task A', isLocked: false },
 							{ taskId: t2.id, label: 'Task B', isLocked: false },
@@ -662,8 +820,8 @@ describe('DailyPlanService', () => {
 			const rows = db.select().from(chunkTasks).orderBy(asc(chunkTasks.sortOrder)).all();
 			expect(rows.length).toBe(2);
 
-			const rowA = rows.find(r => r.taskId === t1.id);
-			const rowB = rows.find(r => r.taskId === t2.id);
+			const rowA = rows.find((r) => r.taskId === t1.id);
+			const rowB = rows.find((r) => r.taskId === t2.id);
 			expect(rowA?.predictedMinSeconds).toBe(600);
 			expect(rowA?.predictedMaxSeconds).toBe(1200);
 			expect(rowA?.predictedConfidence).toBe('high');
@@ -679,7 +837,13 @@ describe('DailyPlanService', () => {
 			// Prediction succeeds
 			llm.setFixture('prediction', {
 				predictions: [
-					{ reasoning: 'stub', taskId: t1.id, predicted_min_seconds: 600, predicted_max_seconds: 1200, confidence: 'high' },
+					{
+						reasoning: 'stub',
+						taskId: t1.id,
+						predicted_min_seconds: 600,
+						predicted_max_seconds: 1200,
+						confidence: 'high',
+					},
 				],
 			});
 			// Plan call throws — no chunk_plan fixture means MockLlmProvider throws

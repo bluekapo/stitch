@@ -1,11 +1,11 @@
 import type Database from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestDb } from '../helpers/db.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { TaskService } from '../../src/core/task-service.js';
+import type { StitchDb } from '../../src/db/index.js';
 import { chunkTasks, dailyPlans, planChunks, taskDurations, tasks } from '../../src/db/schema.js';
 import { createTaskSchema } from '../../src/types/task.js';
-import type { StitchDb } from '../../src/db/index.js';
+import { createTestDb } from '../helpers/db.js';
 
 describe('TaskService', () => {
 	let db: StitchDb;
@@ -187,9 +187,7 @@ describe('TaskService', () => {
 		it('throws "Timer already running on this task." if already running', () => {
 			const created = service.create({ name: 'Work', isEssential: false });
 			service.startTimer(created.id);
-			expect(() => service.startTimer(created.id)).toThrow(
-				'Timer already running on this task.',
-			);
+			expect(() => service.startTimer(created.id)).toThrow('Timer already running on this task.');
 		});
 
 		it('throws "Task not found." for non-existent id', () => {
@@ -218,9 +216,7 @@ describe('TaskService', () => {
 
 		it('throws "No timer running on this task." if no timer', () => {
 			const created = service.create({ name: 'Work', isEssential: false });
-			expect(() => service.stopTimer(created.id)).toThrow(
-				'No timer running on this task.',
-			);
+			expect(() => service.stopTimer(created.id)).toThrow('No timer running on this task.');
 		});
 
 		it('throws "Task not found." for non-existent id', () => {
@@ -251,9 +247,7 @@ describe('TaskService', () => {
 
 		it('throws "Cannot postpone a locked task." for essential task', () => {
 			const created = service.create({ name: 'Workout', isEssential: true });
-			expect(() => service.postpone(created.id)).toThrow(
-				'Cannot postpone a locked task.',
-			);
+			expect(() => service.postpone(created.id)).toThrow('Cannot postpone a locked task.');
 		});
 
 		it('throws "Task not found." for non-existent id', () => {
@@ -291,13 +285,22 @@ describe('TaskService', () => {
 
 	describe('task types (TASK-04)', () => {
 		it('creates task with taskType="daily" and retrieves it', () => {
-			const result = service.create({ name: 'Morning workout', isEssential: false, taskType: 'daily' });
+			const result = service.create({
+				name: 'Morning workout',
+				isEssential: false,
+				taskType: 'daily',
+			});
 			const task = service.getById(result.id);
 			expect(task?.taskType).toBe('daily');
 		});
 
 		it('creates task with taskType="weekly" and recurrenceDay=1', () => {
-			const result = service.create({ name: 'Team standup', isEssential: false, taskType: 'weekly', recurrenceDay: 1 });
+			const result = service.create({
+				name: 'Team standup',
+				isEssential: false,
+				taskType: 'weekly',
+				recurrenceDay: 1,
+			});
 			const task = service.getById(result.id);
 			expect(task?.taskType).toBe('weekly');
 			expect(task?.recurrenceDay).toBe(1);
@@ -305,14 +308,28 @@ describe('TaskService', () => {
 
 		it('creates task with deadline ISO string', () => {
 			const deadline = '2026-04-15T17:00:00.000Z';
-			const result = service.create({ name: 'File taxes', isEssential: false, taskType: 'one-time', deadline });
+			const result = service.create({
+				name: 'File taxes',
+				isEssential: false,
+				taskType: 'one-time',
+				deadline,
+			});
 			const task = service.getById(result.id);
 			expect(task?.deadline).toBe(deadline);
 		});
 
 		it('creates task with sourceTaskId linking to another task', () => {
-			const template = service.create({ name: 'Daily workout', isEssential: false, taskType: 'daily' });
-			const instance = service.create({ name: 'Daily workout', isEssential: false, taskType: 'one-time', sourceTaskId: template.id });
+			const template = service.create({
+				name: 'Daily workout',
+				isEssential: false,
+				taskType: 'daily',
+			});
+			const instance = service.create({
+				name: 'Daily workout',
+				isEssential: false,
+				taskType: 'one-time',
+				sourceTaskId: template.id,
+			});
 			const task = service.getById(instance.id);
 			expect(task?.sourceTaskId).toBe(template.id);
 		});
@@ -337,7 +354,12 @@ describe('TaskService', () => {
 		});
 
 		it('getRecurringTemplates returns weekly tasks', () => {
-			service.create({ name: 'Team meeting', isEssential: false, taskType: 'weekly', recurrenceDay: 1 });
+			service.create({
+				name: 'Team meeting',
+				isEssential: false,
+				taskType: 'weekly',
+				recurrenceDay: 1,
+			});
 			service.create({ name: 'Ad-hoc', isEssential: false });
 			const weeklies = service.getRecurringTemplates('weekly');
 			expect(weeklies).toHaveLength(1);
@@ -345,21 +367,38 @@ describe('TaskService', () => {
 		});
 
 		it('hasInstanceForDate returns false when no instance exists', () => {
-			const template = service.create({ name: 'Daily workout', isEssential: false, taskType: 'daily' });
+			const template = service.create({
+				name: 'Daily workout',
+				isEssential: false,
+				taskType: 'daily',
+			});
 			const result = service.hasInstanceForDate(template.id, '2026-04-05');
 			expect(result).toBe(false);
 		});
 
 		it('hasInstanceForDate returns true when instance exists for date', () => {
-			const template = service.create({ name: 'Daily workout', isEssential: false, taskType: 'daily' });
-			service.create({ name: 'Daily workout', isEssential: false, taskType: 'one-time', sourceTaskId: template.id });
+			const template = service.create({
+				name: 'Daily workout',
+				isEssential: false,
+				taskType: 'daily',
+			});
+			service.create({
+				name: 'Daily workout',
+				isEssential: false,
+				taskType: 'one-time',
+				sourceTaskId: template.id,
+			});
 			const today = new Date().toISOString().split('T')[0];
 			const result = service.hasInstanceForDate(template.id, today);
 			expect(result).toBe(true);
 		});
 
 		it('createInstance creates a one-time task linked to template', () => {
-			const template = service.create({ name: 'Daily workout', isEssential: true, taskType: 'daily' });
+			const template = service.create({
+				name: 'Daily workout',
+				isEssential: true,
+				taskType: 'daily',
+			});
 			const templateTask = service.getById(template.id)!;
 			const instance = service.createInstance(templateTask, '2026-04-05');
 			const task = service.getById(instance.id);
@@ -415,10 +454,7 @@ describe('TaskService', () => {
 
 			const inChunk5 = service.listForChunk(5);
 			expect(inChunk5).toHaveLength(2);
-			expect(inChunk5.map((t) => t.name).sort()).toEqual([
-				'In chunk 5 - A',
-				'In chunk 5 - B',
-			]);
+			expect(inChunk5.map((t) => t.name).sort()).toEqual(['In chunk 5 - A', 'In chunk 5 - B']);
 		});
 
 		it('returns empty array when no tasks match the given chunk_id', () => {
@@ -532,11 +568,7 @@ describe('TaskService', () => {
 			await new Promise((r) => setTimeout(r, 10));
 			service.stopTimer(t.id);
 
-			const row = db
-				.select()
-				.from(taskDurations)
-				.where(eq(taskDurations.taskId, t.id))
-				.get();
+			const row = db.select().from(taskDurations).where(eq(taskDurations.taskId, t.id)).get();
 			expect(row).toBeDefined();
 			expect(row?.outcome).toBe('completed');
 			expect(row?.predictedMinSeconds).toBe(600);
@@ -552,11 +584,7 @@ describe('TaskService', () => {
 
 			service.skip(t.id);
 
-			const row = db
-				.select()
-				.from(taskDurations)
-				.where(eq(taskDurations.taskId, t.id))
-				.get();
+			const row = db.select().from(taskDurations).where(eq(taskDurations.taskId, t.id)).get();
 			expect(row).toBeDefined();
 			expect(row?.outcome).toBe('skipped');
 			expect(row?.durationSeconds).toBeNull();
@@ -575,11 +603,7 @@ describe('TaskService', () => {
 
 			service.postpone(t.id);
 
-			const row = db
-				.select()
-				.from(taskDurations)
-				.where(eq(taskDurations.taskId, t.id))
-				.get();
+			const row = db.select().from(taskDurations).where(eq(taskDurations.taskId, t.id)).get();
 			expect(row).toBeDefined();
 			expect(row?.outcome).toBe('postponed');
 			expect(row?.durationSeconds).toBeNull();
@@ -600,11 +624,7 @@ describe('TaskService', () => {
 			service.skip(t1.id);
 			service.postpone(t2.id);
 
-			const skipRow = db
-				.select()
-				.from(taskDurations)
-				.where(eq(taskDurations.taskId, t1.id))
-				.get();
+			const skipRow = db.select().from(taskDurations).where(eq(taskDurations.taskId, t1.id)).get();
 			const postponeRow = db
 				.select()
 				.from(taskDurations)
@@ -629,11 +649,7 @@ describe('TaskService', () => {
 			await new Promise((r) => setTimeout(r, 10));
 			service.stopTimer(t.id);
 
-			const row = db
-				.select()
-				.from(taskDurations)
-				.where(eq(taskDurations.taskId, t.id))
-				.get();
+			const row = db.select().from(taskDurations).where(eq(taskDurations.taskId, t.id)).get();
 			expect(row?.outcome).toBe('completed');
 			expect(row?.predictedMinSeconds).toBeNull();
 			expect(row?.predictedMaxSeconds).toBeNull();

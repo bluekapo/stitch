@@ -1,12 +1,9 @@
-import { describe, expect, it } from 'vitest';
 import { Menu } from '@grammyjs/menu';
-import { createHubMenu } from '../../../src/channels/telegram/menus/hub-menu.js';
+import { describe, expect, it } from 'vitest';
 import { createDayPlanMenu } from '../../../src/channels/telegram/menus/day-plan-menu.js';
-import { createTasksMenu } from '../../../src/channels/telegram/menus/tasks-menu.js';
+import { createHubMenu } from '../../../src/channels/telegram/menus/hub-menu.js';
 import { registerMenus } from '../../../src/channels/telegram/menus/index.js';
-import { createTestBot } from '../../helpers/telegram.js';
-import { createTestDb } from '../../helpers/db.js';
-import { TaskService } from '../../../src/core/task-service.js';
+import { createTasksMenu } from '../../../src/channels/telegram/menus/tasks-menu.js';
 import {
 	buildCurrentChunkTasksView,
 	buildCurrentChunkView,
@@ -18,6 +15,9 @@ import {
 	renderDayPlanView,
 	renderHubView,
 } from '../../../src/channels/telegram/views.js';
+import { TaskService } from '../../../src/core/task-service.js';
+import { createTestDb } from '../../helpers/db.js';
+import { createTestBot } from '../../helpers/telegram.js';
 
 function makeTaskService() {
 	const db = createTestDb();
@@ -162,7 +162,12 @@ describe('registerMenus', () => {
 		const editCalls = outgoing.filter((c) => c.method === 'editMessageText');
 		expect(editCalls.length).toBeGreaterThanOrEqual(1);
 		const editPayload = editCalls[editCalls.length - 1].payload as Record<string, unknown>;
-		const expectedHubContent = renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null });
+		const expectedHubContent = renderHubView({
+			status: 'idle',
+			currentChunk: null,
+			timer: null,
+			timerSince: null,
+		});
 		expect(editPayload.text).toBe(expectedHubContent);
 		expect(editPayload.parse_mode).toBe('HTML');
 	});

@@ -1,6 +1,6 @@
+import type { Menu } from '@grammyjs/menu';
 import { describe, expect, it, vi } from 'vitest';
 import { HubManager } from '../../../src/channels/telegram/hub.js';
-import type { Menu } from '@grammyjs/menu';
 import type { StitchContext } from '../../../src/channels/telegram/types.js';
 
 function createMockApi(pinnedMessageId?: number) {
@@ -17,12 +17,7 @@ function createMockApi(pinnedMessageId?: number) {
 				};
 			}),
 			editMessageText: vi.fn(
-				async (
-					_chatId: number,
-					_messageId: number,
-					_text: string,
-					_opts?: unknown,
-				) => {
+				async (_chatId: number, _messageId: number, _text: string, _opts?: unknown) => {
 					calls.push({
 						method: 'editMessageText',
 						args: [_chatId, _messageId, _text, _opts],
@@ -49,7 +44,11 @@ function createMockApi(pinnedMessageId?: number) {
 				calls.push({ method: 'getChat', args: [_chatId] });
 				const chat: Record<string, unknown> = { id: _chatId, type: 'private' };
 				if (pinnedMessageId !== undefined) {
-					chat.pinned_message = { message_id: pinnedMessageId, date: 0, chat: { id: _chatId, type: 'private' } };
+					chat.pinned_message = {
+						message_id: pinnedMessageId,
+						date: 0,
+						chat: { id: _chatId, type: 'private' },
+					};
 				}
 				return chat;
 			}),
@@ -117,9 +116,7 @@ describe('HubManager', () => {
 		await hub.sendHub(123, 'text', fakeMenu);
 
 		// Make editMessageText throw "message is not modified"
-		api.editMessageText.mockRejectedValueOnce(
-			new Error('Bad Request: message is not modified'),
-		);
+		api.editMessageText.mockRejectedValueOnce(new Error('Bad Request: message is not modified'));
 
 		// Should not throw
 		await expect(hub.updateHub('text')).resolves.toBeUndefined();
@@ -188,9 +185,7 @@ describe('HubManager', () => {
 		await hub.sendHub(123, 'first', fakeMenu);
 
 		// Make delete fail (message already gone)
-		api.deleteMessage.mockRejectedValueOnce(
-			new Error('Bad Request: message to delete not found'),
-		);
+		api.deleteMessage.mockRejectedValueOnce(new Error('Bad Request: message to delete not found'));
 		api.sendMessage.mockClear();
 		api.pinChatMessage.mockClear();
 

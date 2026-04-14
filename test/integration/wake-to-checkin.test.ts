@@ -137,9 +137,7 @@ async function buildHarness(): Promise<IntegrationHarness> {
 	// setupTelegramBot path is skipped, which means checkInService.setBot()
 	// is never called. Replicate that one-line wiring here so the LLM oracle
 	// can actually call bot.api.sendMessage on a fired check-in.
-	const checkInService = (
-		app as unknown as { checkInService: CheckInService }
-	).checkInService;
+	const checkInService = (app as unknown as { checkInService: CheckInService }).checkInService;
 	checkInService.setBot(mockBot.bot);
 
 	await app.ready();

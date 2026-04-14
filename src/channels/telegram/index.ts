@@ -11,8 +11,8 @@ import type { LlmProvider } from '../../providers/llm.js';
 import type { SttProvider } from '../../providers/stt.js';
 import { createBot } from './bot.js';
 import { scheduleCleanup } from './cleanup.js';
-import { registerVoiceHandler } from './handlers/voice-handler.js';
 import { routeTextInput } from './handlers/text-router.js';
+import { registerVoiceHandler } from './handlers/voice-handler.js';
 import { HubManager } from './hub.js';
 import { registerMenus } from './menus/index.js';
 import type { StitchContext } from './types.js';
@@ -76,7 +76,12 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		}
 
 		const chatId = ctx.chat.id;
-		const text = renderHubView({ status: 'idle', currentChunk: null, timer: null, timerSince: null });
+		const text = renderHubView({
+			status: 'idle',
+			currentChunk: null,
+			timer: null,
+			timerSince: null,
+		});
 		await hub.sendHub(chatId, text, hubMenu, ctx);
 	});
 

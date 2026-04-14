@@ -11,13 +11,23 @@ export const PlanChunkSchema = z.object({
 	label: z.string().describe('Display label for this chunk (e.g., "Work block 1", "Dinner")'),
 	startTime: z.string().describe('HH:MM start time'),
 	endTime: z.string().describe('HH:MM end time'),
-	isTaskSlot: z.boolean().describe('True if chunk has assignable tasks. False for informational chunks like dinner or sleep'),
-	tasks: z.array(ChunkTaskAssignmentSchema).describe('Tasks assigned to this chunk. Empty array for non-task-slot chunks'),
+	isTaskSlot: z
+		.boolean()
+		.describe(
+			'True if chunk has assignable tasks. False for informational chunks like dinner or sleep',
+		),
+	tasks: z
+		.array(ChunkTaskAssignmentSchema)
+		.describe('Tasks assigned to this chunk. Empty array for non-task-slot chunks'),
 });
 
 export const ChunkPlanLlmSchema = z.object({
-	chunks: z.array(PlanChunkSchema).describe('Ordered list of chunks covering all branches from the day tree'),
-	reasoning: z.string().describe('Brief explanation of task assignment and chunk splitting decisions'),
+	chunks: z
+		.array(PlanChunkSchema)
+		.describe('Ordered list of chunks covering all branches from the day tree'),
+	reasoning: z
+		.string()
+		.describe('Brief explanation of task assignment and chunk splitting decisions'),
 });
 
 export type ChunkPlanLlmOutput = z.infer<typeof ChunkPlanLlmSchema>;

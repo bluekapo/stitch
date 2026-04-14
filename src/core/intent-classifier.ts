@@ -1,6 +1,6 @@
-import type { LlmProvider } from '../providers/llm.js';
 import { withSoul } from '../prompts/soul.js';
-import { ClassifierResponseSchema, type ClassifiedIntent } from '../schemas/intent.js';
+import type { LlmProvider } from '../providers/llm.js';
+import { type ClassifiedIntent, ClassifierResponseSchema } from '../schemas/intent.js';
 import { getCurrentChunk } from './current-chunk.js';
 import type { DailyPlanService } from './daily-plan-service.js';
 import type { DayTreeService } from './day-tree-service.js';

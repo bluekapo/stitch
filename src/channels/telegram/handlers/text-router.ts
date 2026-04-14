@@ -12,6 +12,7 @@ import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
 import type { StitchDb } from '../../../db/index.js';
 import { chunkTasks } from '../../../db/schema.js';
+import type { ClassifiedIntent } from '../../../schemas/intent.js';
 import { buildFullDayPlanView } from '../view-builders.js';
 import {
 	escapeHtml,
@@ -39,7 +40,10 @@ export interface TextRouterDeps {
 
 // Phase 10 (D-18): read the most recent chunk_tasks row for a task to
 // get its prediction columns. Used for the completion diff line.
-export function readPredictionFromDb(db: StitchDb | undefined, taskId: number): {
+export function readPredictionFromDb(
+	db: StitchDb | undefined,
+	taskId: number,
+): {
 	predictedMaxSeconds: number | null;
 	predictedConfidence: 'low' | 'medium' | 'high' | null;
 } {
@@ -137,7 +141,13 @@ export async function routeTextInput(
 			deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
 
 			const reply = hadTimer
-				? formatCompletionWithDiff(task.name, task.id, actualSeconds, pred.predictedMaxSeconds, pred.predictedConfidence)
+				? formatCompletionWithDiff(
+						task.name,
+						task.id,
+						actualSeconds,
+						pred.predictedMaxSeconds,
+						pred.predictedConfidence,
+					)
 				: `Done: ${task.name} (#${task.id})`;
 			return { reply };
 		}
@@ -188,7 +198,7 @@ export async function routeTextInput(
 			return { reply: 'Error: classifier not configured.' };
 		}
 
-		let classified;
+		let classified: ClassifiedIntent;
 		try {
 			classified = await deps.intentClassifierService.classify(text);
 		} catch (err) {
@@ -275,7 +285,13 @@ export async function routeTextInput(
 					deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
 
 					const reply = hadTimer
-						? formatCompletionWithDiff(target.name, target.id, actualSeconds, pred.predictedMaxSeconds, pred.predictedConfidence)
+						? formatCompletionWithDiff(
+								target.name,
+								target.id,
+								actualSeconds,
+								pred.predictedMaxSeconds,
+								pred.predictedConfidence,
+							)
 						: `Done: ${target.name} (#${target.id})`;
 					return { reply };
 				}

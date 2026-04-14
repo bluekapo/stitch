@@ -2,14 +2,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 import type { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
-import {
-	CONFIDENCE_THRESHOLD,
-	IntentClassifierService,
-} from '../../src/core/intent-classifier.js';
+import { CONFIDENCE_THRESHOLD, IntentClassifierService } from '../../src/core/intent-classifier.js';
 import { TaskService } from '../../src/core/task-service.js';
+import { dayTrees, tasks } from '../../src/db/schema.js';
 import type { ChatMessage, LlmCompletionOptions, LlmProvider } from '../../src/providers/llm.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
-import { dayTrees, tasks } from '../../src/db/schema.js';
 import { createTestDb } from '../helpers/db.js';
 
 const SAMPLE_TREE = {
@@ -58,12 +55,7 @@ describe('IntentClassifierService', () => {
 		const dayTreeService = new DayTreeService(db, llm);
 		const taskService = new TaskService(db);
 		const dailyPlanService = mkEmptyPlanService();
-		classifier = new IntentClassifierService(
-			llm,
-			dayTreeService,
-			taskService,
-			dailyPlanService,
-		);
+		classifier = new IntentClassifierService(llm, dayTreeService, taskService, dailyPlanService);
 	});
 
 	it('exports CONFIDENCE_THRESHOLD = 0.7 per D-22', () => {
@@ -213,18 +205,14 @@ describe('IntentClassifierService', () => {
 	});
 
 	it('throws when MockLlmProvider has no fixture for intent_classifier schemaName', async () => {
-		await expect(classifier.classify('anything')).rejects.toThrow(
-			'No mock fixture registered',
-		);
+		await expect(classifier.classify('anything')).rejects.toThrow('No mock fixture registered');
 	});
 
 	it('builds user prompt with day tree JSON, pending tasks, current chunk summary, current time HH:MM, weekday', async () => {
 		// Capture the messages passed to the mock provider.
 		let captured: ChatMessage[] = [];
 		const capturingLlm: LlmProvider = {
-			async complete<T extends z.ZodType>(
-				options: LlmCompletionOptions<T>,
-			): Promise<z.infer<T>> {
+			async complete<T extends z.ZodType>(options: LlmCompletionOptions<T>): Promise<z.infer<T>> {
 				captured = options.messages;
 				const fixture = {
 					intent: 'task_query',
@@ -268,9 +256,7 @@ describe('IntentClassifierService', () => {
 	it('calls llmProvider.complete with temperature: 0.3, thinking: false, schemaName: intent_classifier', async () => {
 		let capturedOptions: LlmCompletionOptions<z.ZodType> | null = null;
 		const capturingLlm: LlmProvider = {
-			async complete<T extends z.ZodType>(
-				options: LlmCompletionOptions<T>,
-			): Promise<z.infer<T>> {
+			async complete<T extends z.ZodType>(options: LlmCompletionOptions<T>): Promise<z.infer<T>> {
 				capturedOptions = options as unknown as LlmCompletionOptions<z.ZodType>;
 				return options.schema.parse({
 					intent: 'task_query',

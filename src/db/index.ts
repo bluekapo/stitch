@@ -353,18 +353,23 @@ function migrateDayTreeSchema(sqlite: Database.Database) {
 	}
 
 	// Phase 08.2: migrate stored tree JSON from {cycles:[...]} to {branches:[...]}
-	const treeRows = sqlite.prepare('SELECT id, tree FROM day_trees').all() as { id: number; tree: string }[];
+	const treeRows = sqlite.prepare('SELECT id, tree FROM day_trees').all() as {
+		id: number;
+		tree: string;
+	}[];
 	for (const treeRow of treeRows) {
 		try {
 			const parsed = JSON.parse(treeRow.tree as string);
 			if (parsed.cycles && !parsed.branches) {
 				parsed.branches = parsed.cycles;
 				delete parsed.cycles;
-				sqlite.prepare('UPDATE day_trees SET tree = ? WHERE id = ?').run(
-					JSON.stringify(parsed), treeRow.id
-				);
+				sqlite
+					.prepare('UPDATE day_trees SET tree = ? WHERE id = ?')
+					.run(JSON.stringify(parsed), treeRow.id);
 			}
-		} catch { /* skip malformed rows */ }
+		} catch {
+			/* skip malformed rows */
+		}
 	}
 }
 

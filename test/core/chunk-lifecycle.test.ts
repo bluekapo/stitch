@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
 import { format } from 'date-fns';
+import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 import { CheckInService } from '../../src/core/check-in-service.js';
 import { DailyPlanService } from '../../src/core/daily-plan-service.js';
@@ -18,7 +18,13 @@ function makeService(now?: () => Date) {
 	const dayTreeService = new DayTreeService(db, llm);
 	const taskService = new TaskService(db);
 	const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
-	const dailyPlanService = new DailyPlanService(db, dayTreeService, taskService, llm, predictionService);
+	const dailyPlanService = new DailyPlanService(
+		db,
+		dayTreeService,
+		taskService,
+		llm,
+		predictionService,
+	);
 	const service = new CheckInService({
 		llmProvider: llm,
 		dayTreeService,
@@ -92,11 +98,7 @@ describe('CheckInService.runBufferEndDisposition (PLAN-05)', () => {
 			// The crucial assertion: when this LLM call runs, the chunk must STILL be 'pending'
 			// (i.e., db.transaction has NOT yet been opened). If the await were INSIDE the
 			// transaction, by this point the busy-lock would prevent any subsequent reads.
-			const chunkBefore = db
-				.select()
-				.from(planChunks)
-				.where(eq(planChunks.id, chunkId))
-				.get();
+			const chunkBefore = db.select().from(planChunks).where(eq(planChunks.id, chunkId)).get();
 			expect(chunkBefore?.status).toBe('pending');
 			return {
 				decisions: [
@@ -198,7 +200,9 @@ describe('CheckInService.runBufferEndDisposition (PLAN-05)', () => {
 		// Seed plan + chunk + 2 pending tasks via the same helper.
 		const chunkId = seedPlanWithChunk(db);
 		// Mark plan as started so tick() considers it active (recomputeFromLastCheckIn path).
-		db.update(dailyPlans).set({ startedAt: `${TODAY}T08:00:00` }).run();
+		db.update(dailyPlans)
+			.set({ startedAt: `${TODAY}T08:00:00` })
+			.run();
 		const taskRows = db.select().from(tasks).all();
 
 		llm.setFixture('buffer_end_disposition', {

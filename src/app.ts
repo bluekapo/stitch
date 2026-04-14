@@ -1,18 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import type { Bot } from 'grammy';
-import { setupTelegramBot } from './channels/telegram/index.js';
 import { flushPendingCleanups } from './channels/telegram/cleanup.js';
+import { setupTelegramBot } from './channels/telegram/index.js';
+import type { StitchContext } from './channels/telegram/types.js';
+import { type AppConfig, loadConfig } from './config.js';
 import { CheckInService } from './core/check-in-service.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
 import { DayTreeService } from './core/day-tree-service.js';
 import { IntentClassifierService } from './core/intent-classifier.js';
 import { PredictionService } from './core/prediction-service.js';
-import { WakeStateService } from './core/wake-state.js';
-import type { StitchContext } from './channels/telegram/types.js';
-import { type AppConfig, loadConfig } from './config.js';
 import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
 import { TaskService } from './core/task-service.js';
+import { WakeStateService } from './core/wake-state.js';
 import { createDb, type StitchDb } from './db/index.js';
 import { createLlmProvider, createSttProvider } from './providers/index.js';
 import type { LlmProvider } from './providers/llm.js';
@@ -207,7 +207,9 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		try {
 			const plan = await dailyPlanService.ensureTodayPlan();
 			if (plan) {
-				app.log.info(`Daily plan generated for today: ${dailyPlanService.getPlanWithChunks(plan.id).chunks.length} chunks`);
+				app.log.info(
+					`Daily plan generated for today: ${dailyPlanService.getPlanWithChunks(plan.id).chunks.length} chunks`,
+				);
 			} else {
 				app.log.info('No daily plan generated (already exists or no day tree set)');
 			}
@@ -221,9 +223,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		// safety block here -- it would double-fire.
 		try {
 			await checkInService.start();
-			app.log.info(
-				`CheckInService started (tick interval: ${config.NUDGE_TICK_INTERVAL_MS}ms)`,
-			);
+			app.log.info(`CheckInService started (tick interval: ${config.NUDGE_TICK_INTERVAL_MS}ms)`);
 		} catch (err) {
 			app.log.warn({ err }, 'CheckInService start failed');
 		}

@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm';
 import { format } from 'date-fns';
-import { describe, it, expect, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { describe, expect, it, vi } from 'vitest';
 import { CheckInService } from '../../src/core/check-in-service.js';
 import { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
@@ -38,7 +38,13 @@ function makeService(
 	// New Phase 9 services (CheckInService, WakeStateService) use the options-object Pitfall 5 pattern.
 	// Do NOT migrate DailyPlanService in this phase — that is scope creep.
 	const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
-	const dailyPlanService = new DailyPlanService(db, dayTreeService, taskService, llm, predictionService);
+	const dailyPlanService = new DailyPlanService(
+		db,
+		dayTreeService,
+		taskService,
+		llm,
+		predictionService,
+	);
 	const bot = makeMockBot();
 	const service = new CheckInService({
 		llmProvider: llm,
@@ -367,12 +373,8 @@ describe('CheckInService -- Phase 10: buffer-end disposition writes task_duratio
 			.run();
 		const chunkRow = db.select().from(planChunks).all()[0];
 
-		db.insert(tasks)
-			.values({ name: 'Pushups', chunkId: chunkRow.id, branchName: 'Morning' })
-			.run();
-		db.insert(tasks)
-			.values({ name: 'Read', chunkId: chunkRow.id, branchName: 'Morning' })
-			.run();
+		db.insert(tasks).values({ name: 'Pushups', chunkId: chunkRow.id, branchName: 'Morning' }).run();
+		db.insert(tasks).values({ name: 'Read', chunkId: chunkRow.id, branchName: 'Morning' }).run();
 
 		return chunkRow.id;
 	}

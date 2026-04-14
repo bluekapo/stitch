@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { createTestDb } from '../helpers/db.js';
-import { TaskService } from '../../src/core/task-service.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RecurrenceScheduler } from '../../src/core/recurrence-scheduler.js';
+import { TaskService } from '../../src/core/task-service.js';
+import { createTestDb } from '../helpers/db.js';
 
 describe('RecurrenceScheduler', () => {
 	let service: TaskService;
@@ -26,7 +26,9 @@ describe('RecurrenceScheduler', () => {
 
 			expect(created).toBe(2);
 			const allTasks = service.list();
-			const instances = allTasks.filter(t => t.taskType === 'one-time' && t.sourceTaskId !== null);
+			const instances = allTasks.filter(
+				(t) => t.taskType === 'one-time' && t.sourceTaskId !== null,
+			);
 			expect(instances).toHaveLength(2);
 		});
 
@@ -39,7 +41,9 @@ describe('RecurrenceScheduler', () => {
 			expect(first).toBe(1);
 			expect(second).toBe(0);
 			const allTasks = service.list();
-			const instances = allTasks.filter(t => t.taskType === 'one-time' && t.sourceTaskId !== null);
+			const instances = allTasks.filter(
+				(t) => t.taskType === 'one-time' && t.sourceTaskId !== null,
+			);
 			expect(instances).toHaveLength(1);
 		});
 
@@ -66,7 +70,9 @@ describe('RecurrenceScheduler', () => {
 
 			expect(created).toBe(1);
 			const allTasks = service.list();
-			const instances = allTasks.filter(t => t.taskType === 'one-time' && t.sourceTaskId !== null);
+			const instances = allTasks.filter(
+				(t) => t.taskType === 'one-time' && t.sourceTaskId !== null,
+			);
 			expect(instances).toHaveLength(1);
 			expect(instances[0].name).toBe('Wed Meeting');
 		});
@@ -86,7 +92,11 @@ describe('RecurrenceScheduler', () => {
 			// Note: SQLite's datetime('now') uses real clock for created_at,
 			// but hasInstanceForDate checks date(created_at) against the JS-generated date string.
 			// Without fake timers, both use "today" so idempotency works.
-			service.create({ name: 'Wed Meeting', taskType: 'weekly', recurrenceDay: new Date().getDay() });
+			service.create({
+				name: 'Wed Meeting',
+				taskType: 'weekly',
+				recurrenceDay: new Date().getDay(),
+			});
 
 			const first = scheduler.generateWeeklyTasks();
 			const second = scheduler.generateWeeklyTasks();
@@ -103,7 +113,7 @@ describe('RecurrenceScheduler', () => {
 			scheduler.generateDailyTasks();
 
 			const allTasks = service.list();
-			const instance = allTasks.find(t => t.sourceTaskId === template.id);
+			const instance = allTasks.find((t) => t.sourceTaskId === template.id);
 			expect(instance).toBeDefined();
 			expect(instance!.taskType).toBe('one-time');
 			expect(instance!.sourceTaskId).toBe(template.id);
@@ -120,7 +130,7 @@ describe('RecurrenceScheduler', () => {
 			scheduler.generateDailyTasks();
 
 			const allTasks = service.list();
-			const instance = allTasks.find(t => t.taskType === 'one-time' && t.sourceTaskId !== null);
+			const instance = allTasks.find((t) => t.taskType === 'one-time' && t.sourceTaskId !== null);
 			expect(instance).toBeDefined();
 			expect(instance!.name).toBe('Workout');
 			expect(instance!.description).toBe('Morning exercise');

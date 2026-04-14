@@ -41,8 +41,7 @@ export function createTestBot(): TestBotResult {
 			return {
 				ok: true,
 				result: {
-					message_id:
-						(payload as Record<string, unknown>).message_id ?? 1,
+					message_id: (payload as Record<string, unknown>).message_id ?? 1,
 					date: Math.floor(Date.now() / 1000),
 					chat: {
 						id: (payload as Record<string, unknown>).chat_id ?? 1,
@@ -70,10 +69,7 @@ export function createTestBot(): TestBotResult {
 
 let updateIdCounter = 1000;
 
-export function fakeTextMessageUpdate(
-	text: string,
-	userId = 123,
-): object {
+export function fakeTextMessageUpdate(text: string, userId = 123): object {
 	return {
 		update_id: updateIdCounter++,
 		message: {
@@ -86,10 +82,7 @@ export function fakeTextMessageUpdate(
 	};
 }
 
-export function fakeVoiceMessageUpdate(
-	fileId = 'voice-file-id',
-	userId = 123,
-): object {
+export function fakeVoiceMessageUpdate(fileId = 'voice-file-id', userId = 123): object {
 	return {
 		update_id: updateIdCounter++,
 		message: {
@@ -108,11 +101,7 @@ export function fakeVoiceMessageUpdate(
 	};
 }
 
-export function fakeCallbackQueryUpdate(
-	data: string,
-	userId = 123,
-	messageId = 1,
-): object {
+export function fakeCallbackQueryUpdate(data: string, userId = 123, messageId = 1): object {
 	return {
 		update_id: updateIdCounter++,
 		callback_query: {

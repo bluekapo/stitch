@@ -48,9 +48,10 @@ export function renderHubView(state: HubViewState): string {
 		? `\u23F1 <code>${escapeHtml(state.timer)}</code>`
 		: '<code>--:--:--</code>';
 
-	const hint = state.timer && state.timerSince
-		? `<i>Timer running since ${state.timerSince}.</i>`
-		: '<i>Ready when you are.</i>';
+	const hint =
+		state.timer && state.timerSince
+			? `<i>Timer running since ${state.timerSince}.</i>`
+			: '<i>Ready when you are.</i>';
 
 	return [
 		'<b>-- Stitch Hub --</b>',
@@ -67,7 +68,9 @@ export function renderTreeView(tree: DayTree): string {
 	const lines: string[] = ['<b>-- Day Tree --</b>', ''];
 	for (const branch of tree.branches) {
 		const slotIcon = branch.isTaskSlot ? '[tasks]' : '[fixed]';
-		lines.push(`<b>${escapeHtml(branch.name)}</b> (${branch.startTime}-${branch.endTime}) ${slotIcon}`);
+		lines.push(
+			`<b>${escapeHtml(branch.name)}</b> (${branch.startTime}-${branch.endTime}) ${slotIcon}`,
+		);
 		if (branch.items?.length) {
 			for (const item of branch.items) {
 				const icon = item.type === 'fixed' ? '  -' : '  *';
@@ -88,10 +91,7 @@ export function renderTreeView(tree: DayTree): string {
  * The undefined-plan branch always renders "<b>-- Day Plan --</b>" (no date,
  * no mode prefix) since there is no plan to label.
  */
-export function renderDayPlanView(
-	plan?: DailyPlanView,
-	mode: 'focused' | 'full' = 'full',
-): string {
+export function renderDayPlanView(plan?: DailyPlanView, mode: 'focused' | 'full' = 'full'): string {
 	if (!plan) {
 		return [
 			'<b>-- Day Plan --</b>',
@@ -102,34 +102,38 @@ export function renderDayPlanView(
 	}
 
 	const titlePrefix = mode === 'full' ? '-- Full Day Plan' : '-- Day Plan';
-	const lines: string[] = [
-		`<b>${titlePrefix} (${escapeHtml(plan.date)}) --</b>`,
-		'',
-	];
+	const lines: string[] = [`<b>${titlePrefix} (${escapeHtml(plan.date)}) --</b>`, ''];
 
 	for (const chunk of plan.chunks) {
-		const statusIcon = chunk.status === 'completed' ? '\u2705 '
-			: chunk.status === 'active' ? '\u25B6 '
-			: chunk.status === 'skipped' ? '\u23ED '
-			: '';
-		lines.push(`${statusIcon}<b>${chunk.startTime}-${chunk.endTime}</b> ${escapeHtml(chunk.label)}`);
+		const statusIcon =
+			chunk.status === 'completed'
+				? '\u2705 '
+				: chunk.status === 'active'
+					? '\u25B6 '
+					: chunk.status === 'skipped'
+						? '\u23ED '
+						: '';
+		lines.push(
+			`${statusIcon}<b>${chunk.startTime}-${chunk.endTime}</b> ${escapeHtml(chunk.label)}`,
+		);
 
 		// Phase 10 (D-16): chunk rollup sub-line.
-		const chunkRollup = chunk.predictedSumMinutes != null
-			? `  <i>${chunk.slotDurationMinutes}min slot \u00B7 ~${chunk.predictedSumMinutes}min predicted</i>`
-			: `  <i>${chunk.slotDurationMinutes}min slot</i>`;
+		const chunkRollup =
+			chunk.predictedSumMinutes != null
+				? `  <i>${chunk.slotDurationMinutes}min slot \u00B7 ~${chunk.predictedSumMinutes}min predicted</i>`
+				: `  <i>${chunk.slotDurationMinutes}min slot</i>`;
 		lines.push(chunkRollup);
 
 		if (chunk.tasks.length > 0) {
 			for (const task of chunk.tasks) {
 				const lockIcon = task.isLocked ? ' \uD83D\uDD12' : '';
-				const taskStatus = task.status === 'completed' ? '\u2705 '
-					: task.status === 'active' ? '\u25B6 '
-					: '  ';
+				const taskStatus =
+					task.status === 'completed' ? '\u2705 ' : task.status === 'active' ? '\u25B6 ' : '  ';
 				// Phase 10 (D-15): prediction suffix.
-				const predSuffix = task.predictedMaxSeconds != null
-					? ` ~${Math.round(task.predictedMaxSeconds / 60)}min (${task.predictedConfidence})`
-					: '';
+				const predSuffix =
+					task.predictedMaxSeconds != null
+						? ` ~${Math.round(task.predictedMaxSeconds / 60)}min (${task.predictedConfidence})`
+						: '';
 				lines.push(`  ${taskStatus}${escapeHtml(task.label)}${lockIcon}${predSuffix}`);
 			}
 		}
@@ -179,9 +183,10 @@ export function renderCurrentChunkView(view: CurrentChunkView | undefined): stri
 	// Phase 10 (D-16): chunk rollup — `Nmin slot · ~Mmin predicted`
 	// or just `Nmin slot` when all tasks have null predictions.
 	// U+00B7 middle dot is the literal '\u00B7' character.
-	const rollup = view.chunk.predictedSumMinutes != null
-		? `<i>${view.chunk.slotDurationMinutes}min slot \u00B7 ~${view.chunk.predictedSumMinutes}min predicted</i>`
-		: `<i>${view.chunk.slotDurationMinutes}min slot</i>`;
+	const rollup =
+		view.chunk.predictedSumMinutes != null
+			? `<i>${view.chunk.slotDurationMinutes}min slot \u00B7 ~${view.chunk.predictedSumMinutes}min predicted</i>`
+			: `<i>${view.chunk.slotDurationMinutes}min slot</i>`;
 	lines.push(rollup);
 	lines.push('');
 
@@ -189,18 +194,20 @@ export function renderCurrentChunkView(view: CurrentChunkView | undefined): stri
 		lines.push('<i>No tasks in this chunk.</i>');
 	} else {
 		for (const task of view.chunk.tasks) {
-			const statusIcon = task.status === 'completed'
-				? '\u2705 '
-				: task.status === 'active'
-					? '\u25B6 '
-					: task.status === 'skipped'
-						? '\u23ED '
-						: '  ';
+			const statusIcon =
+				task.status === 'completed'
+					? '\u2705 '
+					: task.status === 'active'
+						? '\u25B6 '
+						: task.status === 'skipped'
+							? '\u23ED '
+							: '  ';
 			const lockIcon = task.isLocked ? ' \uD83D\uDD12' : '';
 			// Phase 10 (D-15): prediction suffix, ` ~25min (high)` — only when set.
-			const predSuffix = task.predictedMaxSeconds != null
-				? ` ~${Math.round(task.predictedMaxSeconds / 60)}min (${task.predictedConfidence})`
-				: '';
+			const predSuffix =
+				task.predictedMaxSeconds != null
+					? ` ~${Math.round(task.predictedMaxSeconds / 60)}min (${task.predictedConfidence})`
+					: '';
 			lines.push(`${statusIcon}${escapeHtml(task.label)}${lockIcon}${predSuffix}`);
 		}
 	}
@@ -341,4 +348,3 @@ export function formatCompletionWithDiff(
 	const driftStr = driftMin >= 0 ? `+${driftMin}` : `${driftMin}`;
 	return `${base}\nPredicted ~${predictedMin}min \u00B7 Actual ${actualMin}min (${driftStr}).`;
 }
-

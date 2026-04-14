@@ -1,15 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createTestBot, fakeVoiceMessageUpdate } from '../../helpers/telegram.js';
-import { createTestDb } from '../../helpers/db.js';
-import { TaskService } from '../../../src/core/task-service.js';
+import type { Bot } from 'grammy';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerVoiceHandler } from '../../../src/channels/telegram/handlers/voice-handler.js';
+import type { StitchContext } from '../../../src/channels/telegram/types.js';
 import { DayTreeService } from '../../../src/core/day-tree-service.js';
 import { IntentClassifierService } from '../../../src/core/intent-classifier.js';
-import { MockLlmProvider } from '../../../src/providers/mock.js';
-import { registerVoiceHandler } from '../../../src/channels/telegram/handlers/voice-handler.js';
-import type { Bot } from 'grammy';
-import type { StitchContext } from '../../../src/channels/telegram/types.js';
-import type { SttProvider } from '../../../src/providers/stt.js';
 import type { TaskParserService } from '../../../src/core/task-parser.js';
+import { TaskService } from '../../../src/core/task-service.js';
+import { MockLlmProvider } from '../../../src/providers/mock.js';
+import type { SttProvider } from '../../../src/providers/stt.js';
+import { createTestDb } from '../../helpers/db.js';
+import { createTestBot, fakeVoiceMessageUpdate } from '../../helpers/telegram.js';
 
 function createMockStt(transcribeResult: string): SttProvider {
 	return {

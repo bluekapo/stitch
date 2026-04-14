@@ -1,24 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
 	escapeHtml,
+	formatCompletionWithDiff,
+	formatDateTime,
 	formatDuration,
 	formatTime,
-	formatDateTime,
-	formatCompletionWithDiff,
-	renderTasksView,
+	renderCurrentChunkTasksView,
+	renderCurrentChunkView,
+	renderDayPlanView,
+	renderHubView,
 	renderTaskDetailView,
 	renderTaskListText,
-	renderHubView,
-	renderDayPlanView,
-	renderCurrentChunkView,
-	renderCurrentChunkTasksView,
+	renderTasksView,
 } from '../../../src/channels/telegram/views.js';
-import type { TaskListItem, TaskDetail } from '../../../src/types/task.js';
 import type {
 	CurrentChunkTasksView,
 	CurrentChunkView,
 	DailyPlanView,
 } from '../../../src/types/daily-plan.js';
+import type { TaskDetail, TaskListItem } from '../../../src/types/task.js';
 
 describe('escapeHtml', () => {
 	it('escapes < > & characters', () => {
@@ -146,7 +146,13 @@ describe('renderTaskListText', () => {
 	it('returns numbered list with correct emoji prefixes', () => {
 		const tasks: TaskListItem[] = [
 			{ id: 1, name: 'Pending task', status: 'pending', isEssential: false, timerStartedAt: null },
-			{ id: 2, name: 'Active task', status: 'active', isEssential: false, timerStartedAt: '2026-04-04T14:30:00.000Z' },
+			{
+				id: 2,
+				name: 'Active task',
+				status: 'active',
+				isEssential: false,
+				timerStartedAt: '2026-04-04T14:30:00.000Z',
+			},
 			{ id: 3, name: 'Done task', status: 'completed', isEssential: false, timerStartedAt: null },
 			{ id: 4, name: 'Skipped task', status: 'skipped', isEssential: false, timerStartedAt: null },
 			{ id: 5, name: 'Locked task', status: 'pending', isEssential: true, timerStartedAt: null },
@@ -190,10 +196,34 @@ describe('renderDayPlanView', () => {
 	const planView: DailyPlanView = {
 		date: '2026-04-05',
 		chunks: [
-			{ label: 'Shower', startTime: '07:00', endTime: '07:30', isTaskSlot: false, status: 'completed', tasks: [], slotDurationMinutes: 30, predictedSumMinutes: null },
-			{ label: 'Buy groceries', startTime: '07:30', endTime: '08:00', isTaskSlot: true, status: 'pending', tasks: [
-				{ label: 'Buy groceries', isLocked: true, status: 'pending', predictedMaxSeconds: null, predictedConfidence: null },
-			], slotDurationMinutes: 30, predictedSumMinutes: null },
+			{
+				label: 'Shower',
+				startTime: '07:00',
+				endTime: '07:30',
+				isTaskSlot: false,
+				status: 'completed',
+				tasks: [],
+				slotDurationMinutes: 30,
+				predictedSumMinutes: null,
+			},
+			{
+				label: 'Buy groceries',
+				startTime: '07:30',
+				endTime: '08:00',
+				isTaskSlot: true,
+				status: 'pending',
+				tasks: [
+					{
+						label: 'Buy groceries',
+						isLocked: true,
+						status: 'pending',
+						predictedMaxSeconds: null,
+						predictedConfidence: null,
+					},
+				],
+				slotDurationMinutes: 30,
+				predictedSumMinutes: null,
+			},
 		],
 	};
 
@@ -265,10 +295,34 @@ describe('renderCurrentChunkView', () => {
 			startTime: '10:00',
 			endTime: '12:00',
 			tasks: [
-				{ label: 'Write report', status: 'active', isLocked: false, predictedMaxSeconds: null, predictedConfidence: null },
-				{ label: 'Review PR', status: 'pending', isLocked: true, predictedMaxSeconds: null, predictedConfidence: null },
-				{ label: 'Reply to email', status: 'completed', isLocked: false, predictedMaxSeconds: null, predictedConfidence: null },
-				{ label: 'Cancelled meeting', status: 'skipped', isLocked: false, predictedMaxSeconds: null, predictedConfidence: null },
+				{
+					label: 'Write report',
+					status: 'active',
+					isLocked: false,
+					predictedMaxSeconds: null,
+					predictedConfidence: null,
+				},
+				{
+					label: 'Review PR',
+					status: 'pending',
+					isLocked: true,
+					predictedMaxSeconds: null,
+					predictedConfidence: null,
+				},
+				{
+					label: 'Reply to email',
+					status: 'completed',
+					isLocked: false,
+					predictedMaxSeconds: null,
+					predictedConfidence: null,
+				},
+				{
+					label: 'Cancelled meeting',
+					status: 'skipped',
+					isLocked: false,
+					predictedMaxSeconds: null,
+					predictedConfidence: null,
+				},
 			],
 			slotDurationMinutes: 120,
 			predictedSumMinutes: null,
@@ -319,9 +373,7 @@ describe('renderCurrentChunkView', () => {
 		};
 		const result = renderCurrentChunkView(view);
 		expect(result).toContain('<b>-- Day Plan --</b>');
-		expect(result).toContain(
-			'<i>No active chunk. Next chunk starts at <code>14:00</code>.</i>',
-		);
+		expect(result).toContain('<i>No active chunk. Next chunk starts at <code>14:00</code>.</i>');
 		expect(result).not.toContain('Branch:');
 	});
 
@@ -352,7 +404,15 @@ describe('renderCurrentChunkView', () => {
 				label: '<bad>',
 				startTime: '10:00',
 				endTime: '12:00',
-				tasks: [{ label: '<evil>', status: 'pending', isLocked: false, predictedMaxSeconds: null, predictedConfidence: null }],
+				tasks: [
+					{
+						label: '<evil>',
+						status: 'pending',
+						isLocked: false,
+						predictedMaxSeconds: null,
+						predictedConfidence: null,
+					},
+				],
 				slotDurationMinutes: 120,
 				predictedSumMinutes: null,
 			},
@@ -403,9 +463,7 @@ describe('renderCurrentChunkTasksView', () => {
 		const view: CurrentChunkTasksView = { chunk: null, nextChunkStartTime: '14:00' };
 		const result = renderCurrentChunkTasksView(view);
 		expect(result).toContain('<b>-- Tasks --</b>');
-		expect(result).toContain(
-			'<i>No active chunk. Next chunk starts at <code>14:00</code>.</i>',
-		);
+		expect(result).toContain('<i>No active chunk. Next chunk starts at <code>14:00</code>.</i>');
 	});
 
 	it('Case C: chunk=null and nextChunkStartTime=null renders "No more chunks today."', () => {
@@ -439,12 +497,14 @@ describe('renderCurrentChunkTasksView', () => {
 });
 
 describe('Phase 10: renderCurrentChunkView prediction surface', () => {
-	function makeView(overrides: {
-		taskPredictedMaxSeconds?: number | null;
-		taskConfidence?: 'low' | 'medium' | 'high' | null;
-		slotDurationMinutes?: number;
-		predictedSumMinutes?: number | null;
-	} = {}): CurrentChunkView {
+	function makeView(
+		overrides: {
+			taskPredictedMaxSeconds?: number | null;
+			taskConfidence?: 'low' | 'medium' | 'high' | null;
+			slotDurationMinutes?: number;
+			predictedSumMinutes?: number | null;
+		} = {},
+	): CurrentChunkView {
 		return {
 			date: '2026-04-07',
 			branchName: 'morning',
@@ -457,12 +517,14 @@ describe('Phase 10: renderCurrentChunkView prediction surface', () => {
 						label: 'Write report',
 						status: 'pending',
 						isLocked: false,
-						predictedMaxSeconds: 'taskPredictedMaxSeconds' in overrides ? overrides.taskPredictedMaxSeconds! : 1500,
+						predictedMaxSeconds:
+							'taskPredictedMaxSeconds' in overrides ? overrides.taskPredictedMaxSeconds! : 1500,
 						predictedConfidence: 'taskConfidence' in overrides ? overrides.taskConfidence! : 'high',
 					},
 				],
 				slotDurationMinutes: overrides.slotDurationMinutes ?? 90,
-				predictedSumMinutes: 'predictedSumMinutes' in overrides ? overrides.predictedSumMinutes! : 25,
+				predictedSumMinutes:
+					'predictedSumMinutes' in overrides ? overrides.predictedSumMinutes! : 25,
 			},
 			nextChunkStartTime: null,
 		};
@@ -475,7 +537,11 @@ describe('Phase 10: renderCurrentChunkView prediction surface', () => {
 	});
 
 	it('omits annotation when prediction null (PLAN-07.23)', () => {
-		const view = makeView({ taskPredictedMaxSeconds: null, taskConfidence: null, predictedSumMinutes: null });
+		const view = makeView({
+			taskPredictedMaxSeconds: null,
+			taskConfidence: null,
+			predictedSumMinutes: null,
+		});
 		const out = renderCurrentChunkView(view);
 		// No `~Xmin (conf)` suffix on the task line
 		expect(out).not.toMatch(/Write report\S* ~\d+min/);
@@ -515,8 +581,20 @@ describe('Phase 10: renderDayPlanView prediction surface (PLAN-07.26)', () => {
 					isTaskSlot: true,
 					status: 'pending',
 					tasks: [
-						{ label: 'Task A', status: 'pending', isLocked: false, predictedMaxSeconds: 1500, predictedConfidence: 'high' },
-						{ label: 'Task B', status: 'pending', isLocked: false, predictedMaxSeconds: 900, predictedConfidence: 'medium' },
+						{
+							label: 'Task A',
+							status: 'pending',
+							isLocked: false,
+							predictedMaxSeconds: 1500,
+							predictedConfidence: 'high',
+						},
+						{
+							label: 'Task B',
+							status: 'pending',
+							isLocked: false,
+							predictedMaxSeconds: 900,
+							predictedConfidence: 'medium',
+						},
 					],
 					slotDurationMinutes: 90,
 					predictedSumMinutes: 40,

@@ -1,24 +1,45 @@
 import type Database from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { routeTextInput, type TextRouterDeps } from '../../src/channels/telegram/handlers/text-router.js';
-import { createTestDb } from '../helpers/db.js';
-import { MockLlmProvider } from '../../src/providers/mock.js';
-import { TaskService } from '../../src/core/task-service.js';
-import { TaskParserService } from '../../src/core/task-parser.js';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+	routeTextInput,
+	type TextRouterDeps,
+} from '../../src/channels/telegram/handlers/text-router.js';
+import type { PlanChunkWithTasks } from '../../src/core/current-chunk.js';
+import type { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
 import { IntentClassifierService } from '../../src/core/intent-classifier.js';
-import type { DailyPlanService } from '../../src/core/daily-plan-service.js';
-import type { PlanChunkWithTasks } from '../../src/core/current-chunk.js';
-import { dayTrees, tasks } from '../../src/db/schema.js';
+import { TaskParserService } from '../../src/core/task-parser.js';
+import { TaskService } from '../../src/core/task-service.js';
 import type { StitchDb } from '../../src/db/index.js';
+import { dayTrees, tasks } from '../../src/db/schema.js';
+import { MockLlmProvider } from '../../src/providers/mock.js';
+import { createTestDb } from '../helpers/db.js';
 
 const SAMPLE_TREE = {
 	branches: [
-		{ name: 'Wake up', startTime: '07:00', endTime: '08:00', isTaskSlot: false, items: [{ label: 'Wake up', type: 'fixed' as const }] },
+		{
+			name: 'Wake up',
+			startTime: '07:00',
+			endTime: '08:00',
+			isTaskSlot: false,
+			items: [{ label: 'Wake up', type: 'fixed' as const }],
+		},
 		{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
-		{ name: 'Day branch', startTime: '10:00', endTime: '21:00', isTaskSlot: true, items: [{ label: 'Games allowed 16-21', type: 'rule' as const }] },
-		{ name: 'Dinner', startTime: '21:00', endTime: '21:45', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
+		{
+			name: 'Day branch',
+			startTime: '10:00',
+			endTime: '21:00',
+			isTaskSlot: true,
+			items: [{ label: 'Games allowed 16-21', type: 'rule' as const }],
+		},
+		{
+			name: 'Dinner',
+			startTime: '21:00',
+			endTime: '21:45',
+			isTaskSlot: false,
+			items: [{ label: 'Dinner', type: 'fixed' as const }],
+		},
 	],
 };
 
@@ -57,7 +78,10 @@ describe('text-router tree commands', () => {
 
 	it('tree <description> calls setTree and returns tree view', async () => {
 		llm.setFixture('day_tree', SAMPLE_TREE);
-		const result = await routeTextInput('tree wake up at 7, morning duties until 10, day cycle 10-21', deps);
+		const result = await routeTextInput(
+			'tree wake up at 7, morning duties until 10, day cycle 10-21',
+			deps,
+		);
 		expect(result.reply).toContain('Day tree created');
 		expect(result.reply).toContain('-- Day Tree --');
 	});
@@ -314,14 +338,16 @@ describe('text-router classifier dispatch (Phase 08.4)', () => {
 
 	it('tree_edit: "Change dinner to 20:00" routes to dayTreeService.editTree (ROUTE-02)', async () => {
 		// Seed a tree so editTree has something to edit
-		db.insert(dayTrees).values({
-			tree: {
-				branches: [
-					{ name: 'Morning', startTime: '08:00', endTime: '12:00', isTaskSlot: true },
-					{ name: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false },
-				],
-			},
-		}).run();
+		db.insert(dayTrees)
+			.values({
+				tree: {
+					branches: [
+						{ name: 'Morning', startTime: '08:00', endTime: '12:00', isTaskSlot: true },
+						{ name: 'Dinner', startTime: '18:00', endTime: '19:00', isTaskSlot: false },
+					],
+				},
+			})
+			.run();
 
 		llm.setFixture('intent_classifier', {
 			intent: 'tree_edit',
@@ -352,13 +378,15 @@ describe('text-router classifier dispatch (Phase 08.4)', () => {
 	});
 
 	it('tree_edit: "Add a reading block from 15-16" routes to dayTreeService.editTree (ROUTE-03)', async () => {
-		db.insert(dayTrees).values({
-			tree: {
-				branches: [
-					{ name: 'Day branch', startTime: '10:00', endTime: '18:00', isTaskSlot: true },
-				],
-			},
-		}).run();
+		db.insert(dayTrees)
+			.values({
+				tree: {
+					branches: [
+						{ name: 'Day branch', startTime: '10:00', endTime: '18:00', isTaskSlot: true },
+					],
+				},
+			})
+			.run();
 
 		llm.setFixture('intent_classifier', {
 			intent: 'tree_edit',
@@ -447,7 +475,7 @@ describe('text-router classifier dispatch (Phase 08.4)', () => {
 		});
 
 		// Reply matches the existing done-reply pattern from the task_modify dispatch case
-		expect(result.reply).toContain("Done: laundry");
+		expect(result.reply).toContain('Done: laundry');
 		// DB side effect: task is now completed
 		expect(taskService.getById(task.id)?.status).toBe('completed');
 	});
@@ -514,11 +542,13 @@ describe('text-router classifier dispatch (Phase 08.4)', () => {
 	});
 
 	it('explicit "tree show" bypasses the classifier (D-20)', async () => {
-		db.insert(dayTrees).values({
-			tree: {
-				branches: [{ name: 'Morning', startTime: '08:00', endTime: '12:00', isTaskSlot: true }],
-			},
-		}).run();
+		db.insert(dayTrees)
+			.values({
+				tree: {
+					branches: [{ name: 'Morning', startTime: '08:00', endTime: '12:00', isTaskSlot: true }],
+				},
+			})
+			.run();
 
 		// No classifier fixture — if the dispatch ever reaches it, the mock throws
 		const intentClassifierService = mkClassifier();

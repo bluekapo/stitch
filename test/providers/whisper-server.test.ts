@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { WhisperServerProvider } from '../../src/providers/whisper-server.js';
 import * as audioConvert from '../../src/providers/audio-convert.js';
+import { WhisperServerProvider } from '../../src/providers/whisper-server.js';
 
 describe('WhisperServerProvider', () => {
 	describe('transcribe', () => {
@@ -107,9 +107,9 @@ describe('WhisperServerProvider', () => {
 				baseURL: 'http://localhost:8081',
 			});
 
-			await expect(
-				provider.transcribe(Buffer.from('ogg-data'), 'audio/ogg'),
-			).rejects.toThrow('ffmpeg not found or failed to start');
+			await expect(provider.transcribe(Buffer.from('ogg-data'), 'audio/ogg')).rejects.toThrow(
+				'ffmpeg not found or failed to start',
+			);
 		});
 	});
 

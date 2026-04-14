@@ -8,8 +8,8 @@ import type { StitchDb } from '../db/index.js';
 import { checkIns, planChunks, tasks } from '../db/schema.js';
 import {
 	BUFFER_END_DISPOSITION_PROMPT,
-	CHECK_IN_SYSTEM_PROMPT,
 	buildCheckInUserPrompt,
+	CHECK_IN_SYSTEM_PROMPT,
 } from '../prompts/check-in.js';
 import { withSoul } from '../prompts/soul.js';
 import type { LlmProvider } from '../providers/llm.js';
@@ -216,10 +216,7 @@ export class CheckInService {
 					try {
 						await this.runBufferEndDisposition(chunk.id);
 					} catch (err) {
-						this.logger?.warn(
-							{ err, chunkId: chunk.id },
-							'tick: runBufferEndDisposition failed',
-						);
+						this.logger?.warn({ err, chunkId: chunk.id }, 'tick: runBufferEndDisposition failed');
 					}
 				}
 			}
@@ -266,9 +263,7 @@ export class CheckInService {
 			}));
 
 		const todayPlan = this.dailyPlanService.getTodayPlan() as { id: number } | undefined;
-		const chunks = todayPlan
-			? this.dailyPlanService.getPlanWithChunks(todayPlan.id).chunks
-			: [];
+		const chunks = todayPlan ? this.dailyPlanService.getPlanWithChunks(todayPlan.id).chunks : [];
 		const currentChunk = getCurrentChunk(chunks, this.now());
 
 		const todaysCheckIns = this.loadTodaysCheckIns();
@@ -397,11 +392,7 @@ export class CheckInService {
 	 */
 	async runBufferEndDisposition(chunkId: number): Promise<void> {
 		// ---------- PHASE 1: Read context (sync, OUTSIDE transaction) ----------
-		const chunkRow = this.db
-			.select()
-			.from(planChunks)
-			.where(eq(planChunks.id, chunkId))
-			.get();
+		const chunkRow = this.db.select().from(planChunks).where(eq(planChunks.id, chunkId)).get();
 		if (!chunkRow) return;
 
 		// Pull tasks attached to this chunk via tasks.chunkId (Phase 08.3 source of truth)
@@ -430,7 +421,12 @@ export class CheckInService {
 		);
 
 		// ---------- PHASE 2: LLM call (async, OUTSIDE transaction — Pitfall 4) ----------
-		let result: { decisions: Array<{ taskId: number; action: 'continue' | 'postpone' | 'skip' | 'move_to_next_chunk' }> };
+		let result: {
+			decisions: Array<{
+				taskId: number;
+				action: 'continue' | 'postpone' | 'skip' | 'move_to_next_chunk';
+			}>;
+		};
 		try {
 			result = await this.llmProvider.complete({
 				messages: [
@@ -444,10 +440,7 @@ export class CheckInService {
 				maxTokens: 1024,
 			});
 		} catch (err) {
-			this.logger?.warn(
-				{ err, chunkId },
-				'buffer-end disposition LLM call failed -- skipping',
-			);
+			this.logger?.warn({ err, chunkId }, 'buffer-end disposition LLM call failed -- skipping');
 			// Skip the disposition; the next tick will retry. The chunk stays pending.
 			return;
 		}
@@ -559,14 +552,9 @@ export class CheckInService {
 				.from(tasks)
 				.where(eq(tasks.chunkId, chunkId))
 				.all();
-			const allCompleted =
-				remaining.length > 0 && remaining.every((t) => t.status === 'completed');
+			const allCompleted = remaining.length > 0 && remaining.every((t) => t.status === 'completed');
 			const newStatus = allCompleted ? 'completed' : 'skipped';
-			this.db
-				.update(planChunks)
-				.set({ status: newStatus })
-				.where(eq(planChunks.id, chunkId))
-				.run();
+			this.db.update(planChunks).set({ status: newStatus }).where(eq(planChunks.id, chunkId)).run();
 		});
 	}
 

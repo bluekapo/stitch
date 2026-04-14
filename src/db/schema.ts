@@ -11,13 +11,13 @@ export const tasks = sqliteTable('tasks', {
 	})
 		.notNull()
 		.default('pending'),
-	isEssential: integer('is_essential', { mode: 'boolean' })
-		.notNull()
-		.default(false),
+	isEssential: integer('is_essential', { mode: 'boolean' }).notNull().default(false),
 	postponeCount: integer('postpone_count').notNull().default(0),
 	taskType: text('task_type', {
 		enum: ['one-time', 'daily', 'weekly', 'ad-hoc'],
-	}).notNull().default('ad-hoc'),
+	})
+		.notNull()
+		.default('ad-hoc'),
 	recurrenceDay: integer('recurrence_day'),
 	deadline: text('deadline'),
 	sourceTaskId: integer('source_task_id'), // FK to tasks.id (self-ref, enforced in DDL)
@@ -67,7 +67,8 @@ export const blueprints = sqliteTable('blueprints', {
 
 export const blueprintCycles = sqliteTable('blueprint_cycles', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
-	blueprintId: integer('blueprint_id').notNull()
+	blueprintId: integer('blueprint_id')
+		.notNull()
 		.references(() => blueprints.id, { onDelete: 'cascade' }),
 	name: text('name').notNull(),
 	sortOrder: integer('sort_order').notNull().default(0),
@@ -77,7 +78,8 @@ export const blueprintCycles = sqliteTable('blueprint_cycles', {
 
 export const blueprintTimeBlocks = sqliteTable('blueprint_time_blocks', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
-	cycleId: integer('cycle_id').notNull()
+	cycleId: integer('cycle_id')
+		.notNull()
 		.references(() => blueprintCycles.id, { onDelete: 'cascade' }),
 	label: text('label'),
 	startTime: text('start_time').notNull(),
@@ -96,13 +98,13 @@ export const dayTrees = sqliteTable('day_trees', {
 export const dailyPlans = sqliteTable('daily_plans', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	date: text('date').notNull().unique(),
-	blueprintId: integer('blueprint_id')
-		.references(() => blueprints.id),
-	dayTreeId: integer('day_tree_id')
-		.references(() => dayTrees.id),
+	blueprintId: integer('blueprint_id').references(() => blueprints.id),
+	dayTreeId: integer('day_tree_id').references(() => dayTrees.id),
 	status: text('status', {
 		enum: ['active', 'completed', 'cancelled'],
-	}).notNull().default('active'),
+	})
+		.notNull()
+		.default('active'),
 	llmReasoning: text('llm_reasoning'),
 	// Phase 9 (D-19): wake state tracking — all nullable, idempotency leaves null until first wake call.
 	startedAt: text('started_at'),
@@ -113,10 +115,10 @@ export const dailyPlans = sqliteTable('daily_plans', {
 
 export const planChunks = sqliteTable('plan_chunks', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
-	planId: integer('plan_id').notNull()
+	planId: integer('plan_id')
+		.notNull()
 		.references(() => dailyPlans.id, { onDelete: 'cascade' }),
-	taskId: integer('task_id')
-		.references(() => tasks.id, { onDelete: 'set null' }),
+	taskId: integer('task_id').references(() => tasks.id, { onDelete: 'set null' }),
 	branchName: text('branch_name').notNull().default(''),
 	label: text('label').notNull(),
 	startTime: text('start_time').notNull(),
@@ -126,21 +128,25 @@ export const planChunks = sqliteTable('plan_chunks', {
 	sortOrder: integer('sort_order').notNull().default(0),
 	status: text('status', {
 		enum: ['pending', 'active', 'completed', 'skipped'],
-	}).notNull().default('pending'),
+	})
+		.notNull()
+		.default('pending'),
 });
 
 export const chunkTasks = sqliteTable('chunk_tasks', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
-	chunkId: integer('chunk_id').notNull()
+	chunkId: integer('chunk_id')
+		.notNull()
 		.references(() => planChunks.id, { onDelete: 'cascade' }),
-	taskId: integer('task_id')
-		.references(() => tasks.id, { onDelete: 'set null' }),
+	taskId: integer('task_id').references(() => tasks.id, { onDelete: 'set null' }),
 	label: text('label').notNull(),
 	isLocked: integer('is_locked', { mode: 'boolean' }).notNull().default(false),
 	sortOrder: integer('sort_order').notNull().default(0),
 	status: text('status', {
 		enum: ['pending', 'active', 'completed', 'skipped'],
-	}).notNull().default('pending'),
+	})
+		.notNull()
+		.default('pending'),
 	// Phase 10 (D-05): live prediction storage. Populated by DailyPlanService.generatePlan
 	// after the prediction LLM call resolves. Nullable for D-06 fall-through cases
 	// (prediction LLM failed twice → null columns → display layer omits the suffix).

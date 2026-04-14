@@ -168,9 +168,7 @@ describe('test helpers', () => {
 			bot.on('message:text', (ctx) => ctx.reply('echo'));
 
 			await bot.handleUpdate(
-				fakeTextMessageUpdate('hello') as Parameters<
-					typeof bot.handleUpdate
-				>[0],
+				fakeTextMessageUpdate('hello') as Parameters<typeof bot.handleUpdate>[0],
 			);
 
 			const sends = outgoing.filter((o) => o.method === 'sendMessage');
@@ -258,9 +256,7 @@ describe('bot with test helpers - user guard integration', () => {
 
 		// Send from wrong user (123, not 999)
 		await guardedBot.handleUpdate(
-			fakeTextMessageUpdate('hello', 123) as Parameters<
-				typeof guardedBot.handleUpdate
-			>[0],
+			fakeTextMessageUpdate('hello', 123) as Parameters<typeof guardedBot.handleUpdate>[0],
 		);
 
 		const sends = outgoing.filter((o) => o.method === 'sendMessage');
@@ -273,9 +269,7 @@ describe('bot with test helpers - user guard integration', () => {
 		bot.on('message:text', (ctx) => ctx.reply('echo'));
 
 		await bot.handleUpdate(
-			fakeTextMessageUpdate('hello', 777) as Parameters<
-				typeof bot.handleUpdate
-			>[0],
+			fakeTextMessageUpdate('hello', 777) as Parameters<typeof bot.handleUpdate>[0],
 		);
 
 		const sends = outgoing.filter((o) => o.method === 'sendMessage');

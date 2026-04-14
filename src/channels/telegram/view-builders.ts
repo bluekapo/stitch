@@ -27,10 +27,7 @@ function computeChunkRollup(
 		return { slotDurationMinutes, predictedSumMinutes: null };
 	}
 
-	const totalSeconds = tasks.reduce(
-		(acc, t) => acc + (t.predictedMaxSeconds ?? 0),
-		0,
-	);
+	const totalSeconds = tasks.reduce((acc, t) => acc + (t.predictedMaxSeconds ?? 0), 0);
 	return {
 		slotDurationMinutes,
 		predictedSumMinutes: Math.round(totalSeconds / 60),

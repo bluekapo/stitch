@@ -1,7 +1,7 @@
 import type { StitchDb } from '../db/index.js';
 import { dayTrees } from '../db/schema.js';
-import type { LlmProvider } from '../providers/llm.js';
 import { withSoul } from '../prompts/soul.js';
+import type { LlmProvider } from '../providers/llm.js';
 import { DayTreeLlmSchema } from '../schemas/day-tree.js';
 import type { DayTree } from '../types/day-tree.js';
 
@@ -63,7 +63,10 @@ export class DayTreeService {
 		const result = await this.llmProvider.complete({
 			messages: [
 				{ role: 'system', content: withSoul(TREE_EDIT_SYSTEM_PROMPT) },
-				{ role: 'user', content: `Current tree:\n${JSON.stringify(current, null, 2)}\n\nModification: ${modification}` },
+				{
+					role: 'user',
+					content: `Current tree:\n${JSON.stringify(current, null, 2)}\n\nModification: ${modification}`,
+				},
 			],
 			schema: DayTreeLlmSchema,
 			schemaName: 'day_tree',

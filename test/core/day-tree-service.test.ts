@@ -1,18 +1,46 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { createTestDb } from '../helpers/db.js';
-import { DayTreeLlmSchema, DayTreeBranchSchema, DayTreeItemSchema } from '../../src/schemas/day-tree.js';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { DayTreeService } from '../../src/core/day-tree-service.js';
 import { dayTrees } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
-import { DayTreeService } from '../../src/core/day-tree-service.js';
+import {
+	DayTreeBranchSchema,
+	DayTreeItemSchema,
+	DayTreeLlmSchema,
+} from '../../src/schemas/day-tree.js';
+import { createTestDb } from '../helpers/db.js';
 
 const SAMPLE_TREE = {
 	branches: [
-		{ name: 'Wake up', startTime: '07:00', endTime: '08:00', isTaskSlot: false, items: [{ label: 'Wake up', type: 'fixed' as const }] },
+		{
+			name: 'Wake up',
+			startTime: '07:00',
+			endTime: '08:00',
+			isTaskSlot: false,
+			items: [{ label: 'Wake up', type: 'fixed' as const }],
+		},
 		{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
-		{ name: 'Day branch', startTime: '10:00', endTime: '21:00', isTaskSlot: true, items: [{ label: 'Games allowed 16-21', type: 'rule' as const }] },
-		{ name: 'Dinner', startTime: '21:00', endTime: '21:45', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
+		{
+			name: 'Day branch',
+			startTime: '10:00',
+			endTime: '21:00',
+			isTaskSlot: true,
+			items: [{ label: 'Games allowed 16-21', type: 'rule' as const }],
+		},
+		{
+			name: 'Dinner',
+			startTime: '21:00',
+			endTime: '21:45',
+			isTaskSlot: false,
+			items: [{ label: 'Dinner', type: 'fixed' as const }],
+		},
 		{ name: 'Night duties', startTime: '21:45', endTime: '22:30', isTaskSlot: true },
-		{ name: 'Sleep', startTime: '22:30', endTime: '07:00', isTaskSlot: false, items: [{ label: 'Sleep', type: 'fixed' as const }] },
+		{
+			name: 'Sleep',
+			startTime: '22:30',
+			endTime: '07:00',
+			isTaskSlot: false,
+			items: [{ label: 'Sleep', type: 'fixed' as const }],
+		},
 	],
 };
 
@@ -96,12 +124,30 @@ describe('DayTreeService', () => {
 
 	const MODIFIED_TREE = {
 		branches: [
-			{ name: 'Wake up', startTime: '07:00', endTime: '08:00', isTaskSlot: false, items: [{ label: 'Wake up', type: 'fixed' as const }] },
+			{
+				name: 'Wake up',
+				startTime: '07:00',
+				endTime: '08:00',
+				isTaskSlot: false,
+				items: [{ label: 'Wake up', type: 'fixed' as const }],
+			},
 			{ name: 'Morning duties', startTime: '08:00', endTime: '10:00', isTaskSlot: true },
 			{ name: 'Day branch', startTime: '10:00', endTime: '20:00', isTaskSlot: true },
-			{ name: 'Dinner', startTime: '20:00', endTime: '20:45', isTaskSlot: false, items: [{ label: 'Dinner', type: 'fixed' as const }] },
+			{
+				name: 'Dinner',
+				startTime: '20:00',
+				endTime: '20:45',
+				isTaskSlot: false,
+				items: [{ label: 'Dinner', type: 'fixed' as const }],
+			},
 			{ name: 'Night duties', startTime: '20:45', endTime: '22:30', isTaskSlot: true },
-			{ name: 'Sleep', startTime: '22:30', endTime: '07:00', isTaskSlot: false, items: [{ label: 'Sleep', type: 'fixed' as const }] },
+			{
+				name: 'Sleep',
+				startTime: '22:30',
+				endTime: '07:00',
+				isTaskSlot: false,
+				items: [{ label: 'Sleep', type: 'fixed' as const }],
+			},
 		],
 	};
 

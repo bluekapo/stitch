@@ -1,16 +1,16 @@
-import { eq, asc, sql } from 'drizzle-orm';
 import { format } from 'date-fns';
+import { asc, eq, sql } from 'drizzle-orm';
 import type { StitchDb } from '../db/index.js';
-import { dailyPlans, planChunks, chunkTasks, tasks } from '../db/schema.js';
+import { chunkTasks, dailyPlans, planChunks, tasks } from '../db/schema.js';
+import { withSoul } from '../prompts/soul.js';
+import type { LlmProvider } from '../providers/llm.js';
+import { ChunkPlanLlmSchema } from '../schemas/daily-plan.js';
+import type { ChunkTask, DailyPlan, PlanChunk } from '../types/daily-plan.js';
+import type { DayTree } from '../types/day-tree.js';
+import type { PredictionItem } from '../types/prediction.js';
 import type { DayTreeService } from './day-tree-service.js';
 import type { PredictionService } from './prediction-service.js';
 import type { TaskService } from './task-service.js';
-import type { LlmProvider } from '../providers/llm.js';
-import { withSoul } from '../prompts/soul.js';
-import { ChunkPlanLlmSchema } from '../schemas/daily-plan.js';
-import type { DailyPlan, PlanChunk, ChunkTask } from '../types/daily-plan.js';
-import type { DayTree } from '../types/day-tree.js';
-import type { PredictionItem } from '../types/prediction.js';
 
 export class DailyPlanService {
 	constructor(
@@ -30,20 +30,26 @@ export class DailyPlanService {
 	}
 
 	getTodayPlan(): DailyPlan | undefined {
-		const row = this.db.select().from(dailyPlans)
+		const row = this.db
+			.select()
+			.from(dailyPlans)
 			.where(eq(dailyPlans.date, this.getTodayDateString()))
 			.get();
 		return row as DailyPlan | undefined;
 	}
 
 	getPlanWithChunks(planId: number): { chunks: (PlanChunk & { tasks: ChunkTask[] })[] } {
-		const chunks = this.db.select().from(planChunks)
+		const chunks = this.db
+			.select()
+			.from(planChunks)
 			.where(eq(planChunks.planId, planId))
 			.orderBy(asc(planChunks.sortOrder))
 			.all() as PlanChunk[];
 
-		const chunksWithTasks = chunks.map(chunk => {
-			const tasks = this.db.select().from(chunkTasks)
+		const chunksWithTasks = chunks.map((chunk) => {
+			const tasks = this.db
+				.select()
+				.from(chunkTasks)
 				.where(eq(chunkTasks.chunkId, chunk.id))
 				.orderBy(asc(chunkTasks.sortOrder))
 				.all() as ChunkTask[];
@@ -65,9 +71,7 @@ export class DailyPlanService {
 		const { id: dayTreeId, tree } = treeRow;
 
 		const allTasks = this.taskService.list();
-		const pendingTasks = allTasks.filter(
-			t => t.status === 'pending' || t.status === 'active',
-		);
+		const pendingTasks = allTasks.filter((t) => t.status === 'pending' || t.status === 'active');
 
 		// =====================================================================
 		// PHASE 1.5: Prediction LLM call (async, OUTSIDE transaction — Pitfall 4)
@@ -128,7 +132,7 @@ export class DailyPlanService {
 
 		// Build set of valid task IDs from pending tasks (hallucination defense
 		// — Phase 07 decision: drop chunks the LLM invented for non-pending tasks)
-		const validTaskIds = new Set(pendingTasks.map(t => t.id));
+		const validTaskIds = new Set(pendingTasks.map((t) => t.id));
 
 		// =====================================================================
 		// PHASE 3: All DB writes (sync, INSIDE db.transaction)
@@ -151,7 +155,8 @@ export class DailyPlanService {
 			// tasks) to avoid touching completed/done tasks whose chunkId is
 			// historical context for past chunks.
 			for (const t of pendingTasks) {
-				this.db.update(tasks)
+				this.db
+					.update(tasks)
 					.set({
 						chunkId: null,
 						branchName: null,
@@ -167,7 +172,8 @@ export class DailyPlanService {
 			this.db.delete(dailyPlans).where(eq(dailyPlans.date, date)).run();
 
 			// 3b. Insert the daily plan with dayTreeId FK
-			const [plan] = this.db.insert(dailyPlans)
+			const [plan] = this.db
+				.insert(dailyPlans)
 				.values({
 					date,
 					dayTreeId,
@@ -184,12 +190,11 @@ export class DailyPlanService {
 				const chunk = result.chunks[i];
 
 				// Filter tasks: keep only those with valid taskIds (hallucination defense)
-				const validChunkTasks = chunk.tasks.filter(
-					t => validTaskIds.has(t.taskId),
-				);
+				const validChunkTasks = chunk.tasks.filter((t) => validTaskIds.has(t.taskId));
 
 				// Insert the plan chunk
-				const [insertedChunk] = this.db.insert(planChunks)
+				const [insertedChunk] = this.db
+					.insert(planChunks)
 					.values({
 						planId: plan.id,
 						branchName: chunk.branchName,
@@ -216,7 +221,8 @@ export class DailyPlanService {
 					// columns. The Map is closure-captured from PHASE 1.5.
 					const pred = predictions.get(task.taskId);
 
-					this.db.insert(chunkTasks)
+					this.db
+						.insert(chunkTasks)
 						.values({
 							chunkId: insertedChunk.id,
 							taskId: task.taskId,
@@ -235,7 +241,8 @@ export class DailyPlanService {
 					// blocks; validTaskIds filter above already drops these, but the
 					// guard is belt-and-suspenders against future regressions).
 					if (task.taskId && task.taskId > 0) {
-						this.db.update(tasks)
+						this.db
+							.update(tasks)
 							.set({
 								chunkId: insertedChunk.id,
 								branchName: chunk.branchName,
@@ -267,35 +274,47 @@ export class DailyPlanService {
 
 	private buildPlanPrompt(
 		tree: DayTree,
-		pendingTasks: { id: number; name: string; isEssential: boolean; postponeCount: number; deadline: string | null }[],
+		pendingTasks: {
+			id: number;
+			name: string;
+			isEssential: boolean;
+			postponeCount: number;
+			deadline: string | null;
+		}[],
 		predictions: Map<number, PredictionItem>,
 		today: string,
 	): { system: string; user: string } {
-		const treeText = tree.branches.map(b => {
-			const type = b.isTaskSlot ? 'TASK SLOT' : 'FIXED';
-			const items = b.items?.map(item => `  ${item.type.toUpperCase()}: ${item.label}`).join('\n') ?? '';
-			return `${b.name} (${b.startTime}-${b.endTime}) [${type}]${items ? `\n${items}` : ''}`;
-		}).join('\n\n');
+		const treeText = tree.branches
+			.map((b) => {
+				const type = b.isTaskSlot ? 'TASK SLOT' : 'FIXED';
+				const items =
+					b.items?.map((item) => `  ${item.type.toUpperCase()}: ${item.label}`).join('\n') ?? '';
+				return `${b.name} (${b.startTime}-${b.endTime}) [${type}]${items ? `\n${items}` : ''}`;
+			})
+			.join('\n\n');
 
-		const taskText = pendingTasks.map(t => {
-			const flags: string[] = [];
-			if (t.isEssential) flags.push('ESSENTIAL');
-			if (t.postponeCount > 0) flags.push(`postponed ${t.postponeCount}x`);
-			if (t.deadline) flags.push(`deadline: ${t.deadline}`);
+		const taskText = pendingTasks
+			.map((t) => {
+				const flags: string[] = [];
+				if (t.isEssential) flags.push('ESSENTIAL');
+				if (t.postponeCount > 0) flags.push(`postponed ${t.postponeCount}x`);
+				if (t.deadline) flags.push(`deadline: ${t.deadline}`);
 
-			// Phase 10 (D-05): inline duration annotation so the plan LLM sees the
-			// prediction and uses it for chunk packing. Max is shown, per D-15/D-16.
-			const pred = predictions.get(t.id);
-			if (pred) {
-				const minutes = Math.round(pred.predicted_max_seconds / 60);
-				flags.push(`predicted ~${minutes}min (${pred.confidence})`);
-			}
+				// Phase 10 (D-05): inline duration annotation so the plan LLM sees the
+				// prediction and uses it for chunk packing. Max is shown, per D-15/D-16.
+				const pred = predictions.get(t.id);
+				if (pred) {
+					const minutes = Math.round(pred.predicted_max_seconds / 60);
+					flags.push(`predicted ~${minutes}min (${pred.confidence})`);
+				}
 
-			return `  ID:${t.id} "${t.name}" ${flags.join(', ')}`;
-		}).join('\n');
+				return `  ID:${t.id} "${t.name}" ${flags.join(', ')}`;
+			})
+			.join('\n');
 
 		return {
-			system: withSoul(`You are a daily planner. Create a day plan by assigning tasks to the day tree's task-slot branches.
+			system:
+				withSoul(`You are a daily planner. Create a day plan by assigning tasks to the day tree's task-slot branches.
 
 Rules:
 - For each branch with isTaskSlot=true, create one or more chunks and assign tasks from the pending pool.

@@ -2,7 +2,9 @@ import { z } from 'zod';
 
 export const DayTreeItemSchema = z.object({
 	label: z.string().describe('Name of the fixed activity or rule'),
-	type: z.enum(['fixed', 'rule']).describe('fixed: scheduled activity. rule: permission or constraint'),
+	type: z
+		.enum(['fixed', 'rule'])
+		.describe('fixed: scheduled activity. rule: permission or constraint'),
 });
 
 export const DayTreeBranchSchema = z.object({

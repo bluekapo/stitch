@@ -1,5 +1,5 @@
 import type { LlmProvider } from '../providers/llm.js';
-import { TaskParseSchema, type TaskParseResult } from '../schemas/task-parse.js';
+import { type TaskParseResult, TaskParseSchema } from '../schemas/task-parse.js';
 
 export class TaskParserService {
 	constructor(private llm: LlmProvider) {}

@@ -48,7 +48,7 @@ export class RecurrenceScheduler {
 		const today = now.toISOString().split('T')[0];
 		const templates = this.taskService
 			.getRecurringTemplates('weekly')
-			.filter(t => t.recurrenceDay === dayOfWeek);
+			.filter((t) => t.recurrenceDay === dayOfWeek);
 		let created = 0;
 		for (const template of templates) {
 			if (!this.taskService.hasInstanceForDate(template.id, today)) {

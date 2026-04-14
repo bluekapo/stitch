@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-	PREDICTION_SYSTEM_PROMPT,
 	buildPredictionUserPrompt,
 	type GlobalActivityRow,
+	PREDICTION_SYSTEM_PROMPT,
 	type TaskDurationRow,
 } from '../../src/prompts/prediction.js';
 

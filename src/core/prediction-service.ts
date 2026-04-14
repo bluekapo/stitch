@@ -20,9 +20,9 @@ import type { Logger } from 'pino';
 import type { StitchDb } from '../db/index.js';
 import { taskDurations, tasks } from '../db/schema.js';
 import {
-	PREDICTION_SYSTEM_PROMPT,
 	buildPredictionUserPrompt,
 	type GlobalActivityRow,
+	PREDICTION_SYSTEM_PROMPT,
 	type TaskDurationRow,
 } from '../prompts/prediction.js';
 import { withSoul } from '../prompts/soul.js';
@@ -82,10 +82,7 @@ export class PredictionService {
 		try {
 			result = await this.callLlm(userPrompt);
 		} catch (firstErr) {
-			this.logger?.warn(
-				{ err: firstErr },
-				'prediction LLM call failed, retrying once (D-06)',
-			);
+			this.logger?.warn({ err: firstErr }, 'prediction LLM call failed, retrying once (D-06)');
 			try {
 				result = await this.callLlm(userPrompt);
 			} catch (secondErr) {
@@ -161,11 +158,7 @@ export class PredictionService {
 			outcome: (r.outcome ?? 'completed') as 'completed' | 'skipped' | 'postponed',
 			predictedMinSeconds: r.predictedMinSeconds ?? null,
 			predictedMaxSeconds: r.predictedMaxSeconds ?? null,
-			predictedConfidence: (r.predictedConfidence ?? null) as
-				| 'low'
-				| 'medium'
-				| 'high'
-				| null,
+			predictedConfidence: (r.predictedConfidence ?? null) as 'low' | 'medium' | 'high' | null,
 			startedAt: r.startedAt,
 		}));
 	}
@@ -195,11 +188,7 @@ export class PredictionService {
 			outcome: (r.outcome ?? 'completed') as 'completed' | 'skipped' | 'postponed',
 			predictedMinSeconds: r.predictedMinSeconds ?? null,
 			predictedMaxSeconds: r.predictedMaxSeconds ?? null,
-			predictedConfidence: (r.predictedConfidence ?? null) as
-				| 'low'
-				| 'medium'
-				| 'high'
-				| null,
+			predictedConfidence: (r.predictedConfidence ?? null) as 'low' | 'medium' | 'high' | null,
 			startedAt: r.startedAt,
 			taskName: nameById.get(r.taskId) ?? `(deleted task #${r.taskId})`,
 		}));

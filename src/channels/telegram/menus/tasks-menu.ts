@@ -4,8 +4,8 @@ import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { TaskService } from '../../../core/task-service.js';
 import type { StitchDb } from '../../../db/index.js';
 import type { TaskListItem } from '../../../types/task.js';
-import type { StitchContext } from '../types.js';
 import { readPredictionFromDb } from '../handlers/text-router.js';
+import type { StitchContext } from '../types.js';
 import { buildCurrentChunkTasksView } from '../view-builders.js';
 import {
 	formatCompletionWithDiff,
@@ -161,7 +161,13 @@ function buildTaskDetailMenu(
 						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
 
 						if (hadTimer) {
-							const diffText = formatCompletionWithDiff(task.name, task.id, actualSeconds, pred.predictedMaxSeconds, pred.predictedConfidence);
+							const diffText = formatCompletionWithDiff(
+								task.name,
+								task.id,
+								actualSeconds,
+								pred.predictedMaxSeconds,
+								pred.predictedConfidence,
+							);
 							await ctx.answerCallbackQuery(diffText.replace('\n', ' \u2014 '));
 						}
 
@@ -190,7 +196,13 @@ function buildTaskDetailMenu(
 						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
 
 						if (hadTimer) {
-							const diffText = formatCompletionWithDiff(task.name, task.id, actualSeconds, pred.predictedMaxSeconds, pred.predictedConfidence);
+							const diffText = formatCompletionWithDiff(
+								task.name,
+								task.id,
+								actualSeconds,
+								pred.predictedMaxSeconds,
+								pred.predictedConfidence,
+							);
 							await ctx.answerCallbackQuery(diffText.replace('\n', ' \u2014 '));
 						}
 
