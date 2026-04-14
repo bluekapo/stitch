@@ -38,6 +38,60 @@ export class DailyPlanService {
 		return row as DailyPlan | undefined;
 	}
 
+	/**
+	 * Phase 11 (D-04, D-06): structural-completeness post-processing.
+	 *
+	 * The plan LLM consistently drops fixed (non-task-slot) branches that have
+	 * no tasks. This is a structural invariant we own -- synthesize empty chunks
+	 * for any fixed branch absent from the LLM result, inserted at chronologically
+	 * correct position by startTime.
+	 *
+	 * Only fixed branches (isTaskSlot=false) get this guarantee. Task-slot branches
+	 * the LLM dropped are intentional (e.g., a work block with no pending tasks
+	 * may legitimately be omitted).
+	 *
+	 * D-06: preserves LLM ordering for LLM-emitted chunks. Synthesized chunks are
+	 * spliced in at their chronological position based on startTime (HH:MM strings
+	 * sort lexically as time).
+	 *
+	 * Pitfall 4 compliant: pure function, no DB access, safe to call outside and
+	 * before the db.transaction callback.
+	 */
+	private mergeWithFixedBranches(
+		llmChunks: Array<{
+			branchName: string;
+			label: string;
+			startTime: string;
+			endTime: string;
+			isTaskSlot: boolean;
+			tasks: Array<{ taskId: number; label: string; isLocked: boolean }>;
+		}>,
+		tree: DayTree,
+	): Array<{
+		branchName: string;
+		label: string;
+		startTime: string;
+		endTime: string;
+		isTaskSlot: boolean;
+		tasks: Array<{ taskId: number; label: string; isLocked: boolean }>;
+	}> {
+		const presentBranchNames = new Set(llmChunks.map((c) => c.branchName));
+		const synthesized = tree.branches
+			.filter((b) => !b.isTaskSlot && !presentBranchNames.has(b.name))
+			.map((b) => ({
+				branchName: b.name,
+				label: b.name,
+				startTime: b.startTime,
+				endTime: b.endTime,
+				isTaskSlot: false,
+				tasks: [] as Array<{ taskId: number; label: string; isLocked: boolean }>,
+			}));
+		const merged = [...llmChunks, ...synthesized];
+		// Sort by startTime -- HH:MM strings sort lexically as time.
+		merged.sort((a, b) => (a.startTime < b.startTime ? -1 : a.startTime > b.startTime ? 1 : 0));
+		return merged;
+	}
+
 	getPlanWithChunks(planId: number): { chunks: (PlanChunk & { tasks: ChunkTask[] })[] } {
 		const chunks = this.db
 			.select()
@@ -134,6 +188,13 @@ export class DailyPlanService {
 		// — Phase 07 decision: drop chunks the LLM invented for non-pending tasks)
 		const validTaskIds = new Set(pendingTasks.map((t) => t.id));
 
+		// PHASE 2.5 (Phase 11, D-04): merge LLM chunks with structural-completeness
+		// invariant -- every fixed branch in the day tree MUST appear as a chunk.
+		// mergeWithFixedBranches synthesizes empty chunks for fixed branches the LLM
+		// dropped, sorted chronologically by startTime (D-06). Pitfall 4 compliant --
+		// pure function call, runs OUTSIDE the transaction.
+		const mergedChunks = this.mergeWithFixedBranches(result.chunks, tree);
+
 		// =====================================================================
 		// PHASE 3: All DB writes (sync, INSIDE db.transaction)
 		//
@@ -184,10 +245,12 @@ export class DailyPlanService {
 				.returning()
 				.all();
 
-			// 3c. Insert chunks and their tasks (and dual-write tasks.chunk_id)
+			// 3c. Insert chunks and their tasks (and dual-write tasks.chunk_id).
+			// Iterates mergedChunks (LLM output + synthesized fixed-branch chunks)
+			// per D-04. See PHASE 2.5 above.
 			const insertedChunks: PlanChunk[] = [];
-			for (let i = 0; i < result.chunks.length; i++) {
-				const chunk = result.chunks[i];
+			for (let i = 0; i < mergedChunks.length; i++) {
+				const chunk = mergedChunks[i];
 
 				// Filter tasks: keep only those with valid taskIds (hallucination defense)
 				const validChunkTasks = chunk.tasks.filter((t) => validTaskIds.has(t.taskId));

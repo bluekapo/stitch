@@ -354,10 +354,14 @@ describe('DailyPlanService', () => {
 			});
 
 			const result = await planService.generatePlan('2026-04-05');
-			expect(result.chunks).toHaveLength(2);
+			// Phase 11 (D-04): Dinner (fixed branch) is synthesized -- 3 chunks total.
+			expect(result.chunks).toHaveLength(3);
 
-			const morningChunk = result.chunks[0];
-			const workChunk = result.chunks[1];
+			const morningChunk = result.chunks.find((c) => c.branchName === 'Morning duties');
+			const workChunk = result.chunks.find((c) => c.branchName === 'Day branch');
+			expect(morningChunk).toBeDefined();
+			expect(workChunk).toBeDefined();
+			if (!morningChunk || !workChunk) throw new Error('Chunks not found');
 
 			// Tasks 1 and 2 should be attached to morning chunk + 'Morning duties'
 			const t1Row = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
@@ -478,11 +482,14 @@ describe('DailyPlanService', () => {
 
 			// Should not throw
 			const result = await planService.generatePlan('2026-04-05');
-			expect(result.chunks).toHaveLength(1);
+			// Phase 11 (D-04): Dinner (fixed branch) is synthesized -- 2 chunks total.
+			expect(result.chunks).toHaveLength(2);
 
-			// Real task is attached
+			// Real task is attached to the Morning chunk (not the synthesized Dinner)
+			const morningChunk = result.chunks.find((c) => c.branchName === 'Morning duties');
+			expect(morningChunk).toBeDefined();
 			const t1Row = db.select().from(tasks).where(eq(tasks.id, t1.id)).get();
-			expect(t1Row?.chunkId).toBe(result.chunks[0].id);
+			expect(t1Row?.chunkId).toBe(morningChunk?.id);
 		});
 	});
 
@@ -767,8 +774,10 @@ describe('DailyPlanService', () => {
 
 			const result = await planService.generatePlan('2026-04-07');
 
-			expect(result.chunks.length).toBe(1);
+			// Phase 11 (D-04): Dinner (fixed branch) is synthesized -- 2 chunks total.
+			expect(result.chunks.length).toBe(2);
 
+			// chunk_tasks rows still only count the real task (synthesized chunk has no tasks).
 			const ctRows = db.select().from(chunkTasks).all();
 			expect(ctRows.length).toBe(1);
 			expect(ctRows[0].predictedMinSeconds).toBeNull();
