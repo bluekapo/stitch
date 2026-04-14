@@ -72,7 +72,6 @@ function buildTaskDetailMenu(
 			// so dimension check passes on click
 			range
 				.text({ text: '<< Back to Tasks', payload: String(taskId) }, async (ctx) => {
-					// biome-ignore lint: back() required for dynamic submenu nav
 					ctx.menu.back();
 					await safeEditMessageText(ctx, renderParentText());
 				})
@@ -84,7 +83,6 @@ function buildTaskDetailMenu(
 		if (task.status === 'completed' || task.status === 'skipped') {
 			range
 				.text({ text: '<< Back to Tasks', payload: String(task.id) }, async (ctx) => {
-					// biome-ignore lint: back() required for dynamic submenu nav
 					ctx.menu.back();
 					await safeEditMessageText(ctx, renderParentText());
 				})
@@ -109,7 +107,6 @@ function buildTaskDetailMenu(
 				.row();
 			range
 				.text({ text: '<< Back to Tasks', payload: String(task.id) }, async (ctx) => {
-					// biome-ignore lint: back() required for dynamic submenu nav
 					ctx.menu.back();
 					await safeEditMessageText(ctx, renderParentText());
 				})
@@ -171,7 +168,6 @@ function buildTaskDetailMenu(
 							await ctx.answerCallbackQuery(diffText.replace('\n', ' \u2014 '));
 						}
 
-						// biome-ignore lint: back() required for dynamic submenu nav
 						ctx.menu.back();
 						await safeEditMessageText(ctx, renderParentText());
 					} catch (err) {
@@ -206,7 +202,6 @@ function buildTaskDetailMenu(
 							await ctx.answerCallbackQuery(diffText.replace('\n', ' \u2014 '));
 						}
 
-						// biome-ignore lint: back() required for dynamic submenu nav
 						ctx.menu.back();
 						await safeEditMessageText(ctx, renderParentText());
 					} catch (err) {
@@ -222,7 +217,6 @@ function buildTaskDetailMenu(
 				.text({ text: 'Delete', payload: String(task.id) }, async (ctx) => {
 					try {
 						taskService.delete(task.id);
-						// biome-ignore lint: back() required for dynamic submenu nav
 						ctx.menu.back();
 						await safeEditMessageText(ctx, renderParentText());
 					} catch (err) {
@@ -236,7 +230,6 @@ function buildTaskDetailMenu(
 		// (grammY dimension check needs ctx.match = task ID to render correctly)
 		range
 			.text({ text: '<< Back to Tasks', payload: String(task.id) }, async (ctx) => {
-				// biome-ignore lint: back() required for dynamic submenu nav
 				ctx.menu.back();
 				await safeEditMessageText(ctx, renderParentText());
 			})

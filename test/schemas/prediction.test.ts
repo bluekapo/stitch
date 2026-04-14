@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { PredictionItemSchema, PredictionResponseSchema } from '../../src/schemas/prediction.js';
+import { PredictionResponseSchema } from '../../src/schemas/prediction.js';
 
 describe('PredictionResponseSchema', () => {
 	it('parses valid response with all three confidence values', () => {

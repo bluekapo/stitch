@@ -287,7 +287,7 @@ export class TaskService {
 
 	createInstance(
 		template: { id: number; name: string; description: string | null; isEssential: boolean },
-		dateStr: string,
+		_dateStr: string,
 	) {
 		return this.create({
 			name: template.name,

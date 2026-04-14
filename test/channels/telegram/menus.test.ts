@@ -236,7 +236,6 @@ describe('Full Day Plan submenu (Phase 08.3)', () => {
 		const dayPlanMenu = createDayPlanMenu(undefined, undefined);
 		// Grab the registered full-day-plan submenu by id via its index.
 		// @grammyjs/menu exposes registered children via the `index` property.
-		// biome-ignore lint: inspecting internal registry for test assertion
 		const index = (dayPlanMenu as unknown as { index: Map<string, Menu<never>> }).index;
 		const fullDayPlanMenu = index.get('full-day-plan');
 		expect(fullDayPlanMenu).toBeInstanceOf(Menu);
@@ -252,7 +251,6 @@ describe('Full Day Plan submenu (Phase 08.3)', () => {
 describe('Day Tree View submenu back button (Phase 08.3 D-21)', () => {
 	it('back button label is "<< Back to Day Plan" (not "<< Back to Hub")', async () => {
 		const dayPlanMenu = createDayPlanMenu(undefined, undefined);
-		// biome-ignore lint: inspecting internal registry for test assertion
 		const index = (dayPlanMenu as unknown as { index: Map<string, Menu<never>> }).index;
 		const treeViewMenu = index.get('day-tree-view');
 		expect(treeViewMenu).toBeInstanceOf(Menu);
@@ -298,7 +296,6 @@ describe('Tasks menu structure (Phase 08.3)', () => {
 describe('All Tasks submenu (Phase 08.3)', () => {
 	it('has Refresh and << Back to Tasks buttons', async () => {
 		const { tasksMenu } = createTasksMenu(makeTaskService(), undefined);
-		// biome-ignore lint: inspecting internal registry for test assertion
 		const index = (tasksMenu as unknown as { index: Map<string, Menu<never>> }).index;
 		const allTasksMenu = index.get('all-tasks');
 		expect(allTasksMenu).toBeInstanceOf(Menu);
@@ -314,7 +311,6 @@ describe('All Tasks submenu (Phase 08.3)', () => {
 describe('Task Detail menu dual registration (Phase 08.3 OQ-1)', () => {
 	it('registers task-detail-from-chunk under tasksMenu and task-detail-from-all under allTasksMenu', () => {
 		const { tasksMenu } = createTasksMenu(makeTaskService(), undefined);
-		// biome-ignore lint: inspecting internal registry for test assertion
 		const tasksIndex = (tasksMenu as unknown as { index: Map<string, Menu<never>> }).index;
 
 		// task-detail-from-chunk and all-tasks are registered directly under tasksMenu.
