@@ -43,6 +43,21 @@ export class DailyPlanService {
 	}
 
 	/**
+	 * Phase 12 (D-16): lookup plan by date. Used by `plan_view target_date='tomorrow'`
+	 * in the text-router dispatch so users can preview tomorrow's plan without
+	 * regenerating it. Returns `undefined` when no plan exists for the given date
+	 * — the router replies "No plan for tomorrow yet, Sir." in that case.
+	 *
+	 * Independent of `getTodayPlan()` so callers don't have to special-case
+	 * "date === today": a future migration could fold them together, but the
+	 * explicit separation keeps today-path callers unchanged.
+	 */
+	getPlan(date: string): DailyPlan | undefined {
+		const row = this.db.select().from(dailyPlans).where(eq(dailyPlans.date, date)).get();
+		return row as DailyPlan | undefined;
+	}
+
+	/**
 	 * Phase 11 (D-04, D-06): structural-completeness post-processing.
 	 *
 	 * The plan LLM consistently drops fixed (non-task-slot) branches that have

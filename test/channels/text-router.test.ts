@@ -1,10 +1,8 @@
 import type Database from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
-import { beforeEach, describe, expect, it } from 'vitest';
-import {
-	routeTextInput,
-	type TextRouterDeps,
-} from '../../src/channels/telegram/handlers/text-router.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { routeTextInput } from '../../src/channels/telegram/handlers/text-router.js';
+import type { CheckInService } from '../../src/core/check-in-service.js';
 import type { PlanChunkWithTasks } from '../../src/core/current-chunk.js';
 import type { DailyPlanService } from '../../src/core/daily-plan-service.js';
 import { DayTreeService } from '../../src/core/day-tree-service.js';
@@ -44,87 +42,62 @@ const SAMPLE_TREE = {
 	],
 };
 
-describe('text-router tree commands', () => {
-	let deps: TextRouterDeps;
+describe('text-router LLM-only tree commands (D-13: classifier-routed)', () => {
+	let db: StitchDb;
+	let taskService: TaskService;
+	let parser: TaskParserService;
+	let dayTreeService: DayTreeService;
 	let llm: MockLlmProvider;
 
+	function mkClassifier(): IntentClassifierService {
+		return new IntentClassifierService(llm, dayTreeService, taskService, createTestLogger());
+	}
+
 	beforeEach(() => {
-		const db = createTestDb();
+		db = createTestDb();
 		llm = new MockLlmProvider();
-		const taskService = new TaskService(db, createTestLogger());
-		const parser = new TaskParserService(llm, createTestLogger());
-		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
-
-		deps = { taskService, parser, dayTreeService };
+		taskService = new TaskService(db, createTestLogger());
+		parser = new TaskParserService(llm, createTestLogger());
+		dayTreeService = new DayTreeService(db, llm, createTestLogger());
 	});
 
-	it('tree show with no tree returns "No day tree set"', async () => {
-		const result = await routeTextInput('tree show', deps);
-		expect(result.reply).toContain('No day tree set');
-	});
-
-	it('tree show with existing tree returns tree view', async () => {
-		// Insert tree directly into DB
-		const db = createTestDb();
+	it('D-13: "tree show" routes to classifier tree_query intent, not regex', async () => {
+		// Seed a tree so tree_query can render it
 		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
-		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
-		const localDeps: TextRouterDeps = { ...deps, dayTreeService };
 
-		const result = await routeTextInput('tree show', localDeps);
+		llm.setFixture('intent_classifier', {
+			intent: 'tree_query',
+			confidence: 0.95,
+		});
+
+		const result = await routeTextInput('tree show', {
+			taskService,
+			parser,
+			dayTreeService,
+			intentClassifierService: mkClassifier(),
+		});
 		expect(result.reply).toContain('-- Day Tree --');
 		expect(result.reply).toContain('Wake up');
-		expect(result.reply).toContain('[fixed]');
-		expect(result.reply).toContain('[tasks]');
 	});
 
-	it('tree <description> calls setTree and returns tree view', async () => {
-		llm.setFixture('day_tree', SAMPLE_TREE);
-		const result = await routeTextInput(
-			'tree wake up at 7, morning duties until 10, day cycle 10-21',
-			deps,
-		);
-		expect(result.reply).toContain('Day tree created');
-		expect(result.reply).toContain('-- Day Tree --');
-	});
-
-	it('tree edit <modification> calls editTree and returns updated view', async () => {
-		// First insert a tree so editTree can find it
-		const db = createTestDb();
+	it('D-13: "tree edit <change>" routes to classifier tree_edit intent, not regex', async () => {
 		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
-		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
-		const localDeps: TextRouterDeps = { ...deps, dayTreeService };
+
+		llm.setFixture('intent_classifier', {
+			intent: 'tree_edit',
+			confidence: 0.95,
+			modification: 'move dinner to 20:00',
+		});
 		llm.setFixture('day_tree', SAMPLE_TREE);
 
-		const result = await routeTextInput('tree edit move dinner to 20:00', localDeps);
+		const result = await routeTextInput('tree edit move dinner to 20:00', {
+			taskService,
+			parser,
+			dayTreeService,
+			intentClassifierService: mkClassifier(),
+		});
 		expect(result.reply).toContain('Day tree updated');
 		expect(result.reply).toContain('-- Day Tree --');
-	});
-
-	it('tree edit is matched before tree catch-all', async () => {
-		const db = createTestDb();
-		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
-		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
-		const localDeps: TextRouterDeps = { ...deps, dayTreeService };
-		llm.setFixture('day_tree', SAMPLE_TREE);
-
-		// "tree edit something" should match as edit, not as set with desc "edit something"
-		const result = await routeTextInput('tree edit something', localDeps);
-		expect(result.reply).toContain('Day tree updated');
-		expect(result.reply).not.toContain('Day tree created');
-	});
-
-	it('tree commands not matched when dayTreeService not provided', async () => {
-		// Without dayTreeService, the `tree show` line cannot match. Without
-		// intentClassifierService either, the router returns the configuration
-		// error reply (no silent task creation — D-35 fail-closed).
-		const depsWithoutTree: TextRouterDeps = {
-			taskService: deps.taskService,
-			parser: deps.parser,
-			// no dayTreeService, no intentClassifierService
-		};
-
-		const result = await routeTextInput('tree show', depsWithoutTree);
-		expect(result.reply).toContain('Error: classifier not configured.');
 	});
 });
 
@@ -506,62 +479,306 @@ describe('text-router classifier dispatch (Phase 08.4)', () => {
 		expect(taskService.getById(task.id)?.postponeCount).toBe(initialPostponeCount + 1);
 	});
 
-	it('classifier failure (D-35): returns error with explicit-command hint, NO silent task creation', async () => {
+	it('D-19 classifier failure: fail-closed reply, NO regex resurrection, NO silent task creation', async () => {
 		// No fixture registered for intent_classifier → MockLlmProvider rejects
 		const intentClassifierService = mkClassifier();
 
-		const result = await routeTextInput('whatever', {
+		// Spy on every mutating taskService method to prove none is invoked.
+		const deleteSpy = vi.spyOn(taskService, 'delete');
+		const createSpy = vi.spyOn(taskService, 'create');
+		const updateSpy = vi.spyOn(taskService, 'update');
+		const startSpy = vi.spyOn(taskService, 'startTimer');
+		const stopSpy = vi.spyOn(taskService, 'stopTimer');
+		const postponeSpy = vi.spyOn(taskService, 'postpone');
+
+		// D-19 regression: "delete 42" no longer has a regex fast-path. The classifier
+		// is invoked; the mock throws (no fixture); the catch block must return
+		// fail-closed WITHOUT falling back to regex.
+		const result = await routeTextInput('delete 42', {
 			taskService,
 			parser,
 			intentClassifierService,
+			logger: createTestLogger(),
 		});
 
-		expect(result.reply).toContain('Classification failed');
-		expect(result.reply).toContain('add &lt;name&gt;');
-		expect(result.reply).toContain('tree edit');
-		// CRITICAL: D-35 fail-closed — no task was silently created
+		expect(result.reply).toMatch(/Classification failed/i);
+		// D-19: no regex resurrection — taskService.delete MUST NOT have been invoked
+		expect(deleteSpy).not.toHaveBeenCalled();
+		expect(createSpy).not.toHaveBeenCalled();
+		expect(updateSpy).not.toHaveBeenCalled();
+		expect(startSpy).not.toHaveBeenCalled();
+		expect(stopSpy).not.toHaveBeenCalled();
+		expect(postponeSpy).not.toHaveBeenCalled();
 		expect(taskService.list()).toHaveLength(0);
 	});
 
-	it('explicit ID-based fast-paths bypass the classifier (D-20)', async () => {
-		// Pre-create a task to delete
-		const t = taskService.create({ name: 'Doomed' });
+	// D-13 regression: "delete 42" is now classifier-routed, not regex.
+	it('D-13/D-14: task_modify action=delete routes to taskService.delete', async () => {
+		const target = taskService.create({ name: 'Doomed' });
+		llm.setFixture('intent_classifier', {
+			intent: 'task_modify',
+			confidence: 0.95,
+			task_id: target.id,
+			action: 'delete',
+		});
 
-		// Classifier should NEVER be called for "delete N" — verify by NOT setting
-		// any fixture. If the classifier WERE invoked, the mock would throw.
-		const intentClassifierService = mkClassifier();
+		const deleteSpy = vi.spyOn(taskService, 'delete');
 
-		const result = await routeTextInput(`delete ${t.id}`, {
+		const result = await routeTextInput(`delete ${target.id}`, {
 			taskService,
 			parser,
-			intentClassifierService,
+			intentClassifierService: mkClassifier(),
+			logger: createTestLogger(),
 		});
 
 		expect(result.reply).toContain('Deleted: Doomed');
-		// Task is gone — explicit fast-path executed without going through classifier
-		expect(taskService.getById(t.id)).toBeUndefined();
+		expect(deleteSpy).toHaveBeenCalledWith(target.id, expect.anything());
+		expect(taskService.getById(target.id)).toBeUndefined();
 	});
 
-	it('explicit "tree show" bypasses the classifier (D-20)', async () => {
-		db.insert(dayTrees)
-			.values({
-				tree: {
-					branches: [{ name: 'Morning', startTime: '08:00', endTime: '12:00', isTaskSlot: true }],
-				},
-			})
-			.run();
-
-		// No classifier fixture — if the dispatch ever reaches it, the mock throws
-		const intentClassifierService = mkClassifier();
-
-		const result = await routeTextInput('tree show', {
-			taskService,
-			parser,
-			dayTreeService,
-			intentClassifierService,
+	it('D-14: task_modify action=start_timer routes to taskService.startTimer', async () => {
+		const target = taskService.create({ name: 'Workout' });
+		llm.setFixture('intent_classifier', {
+			intent: 'task_modify',
+			confidence: 0.95,
+			task_id: target.id,
+			action: 'start_timer',
 		});
 
-		expect(result.reply).toContain('-- Day Tree --');
-		expect(result.reply).toContain('Morning');
+		const startSpy = vi.spyOn(taskService, 'startTimer');
+
+		const result = await routeTextInput(`start ${target.id}`, {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			logger: createTestLogger(),
+		});
+
+		expect(result.reply).toContain('Timer started: Workout');
+		expect(startSpy).toHaveBeenCalledWith(target.id, expect.anything());
+		// Side effect: task status is active
+		expect(taskService.getById(target.id)?.timerStartedAt).toBeTruthy();
+	});
+
+	it('D-14: task_modify action=stop_timer routes to taskService.stopTimer', async () => {
+		const target = taskService.create({ name: 'Workout' });
+		// Start the timer first so stop has something to stop
+		taskService.startTimer(target.id);
+
+		llm.setFixture('intent_classifier', {
+			intent: 'task_modify',
+			confidence: 0.95,
+			task_id: target.id,
+			action: 'stop_timer',
+		});
+
+		const stopSpy = vi.spyOn(taskService, 'stopTimer');
+
+		const result = await routeTextInput(`stop ${target.id}`, {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			logger: createTestLogger(),
+		});
+
+		expect(result.reply).toContain('Timer stopped: Workout');
+		expect(stopSpy).toHaveBeenCalledWith(target.id, expect.anything());
+		// Side effect: timer cleared
+		expect(taskService.getById(target.id)?.timerStartedAt).toBeNull();
+	});
+
+	it('D-15: stop_timer on task with no running timer produces JARVIS error via D-36 catch', async () => {
+		const target = taskService.create({ name: 'Idle' });
+		// NO startTimer — timer is null
+		llm.setFixture('intent_classifier', {
+			intent: 'task_modify',
+			confidence: 0.95,
+			task_id: target.id,
+			action: 'stop_timer',
+		});
+
+		const result = await routeTextInput(`stop ${target.id}`, {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			logger: createTestLogger(),
+		});
+
+		// D-36 outer service-boundary catch wraps the TaskService throw in an "Error:" reply
+		expect(result.reply).toMatch(/No timer running on this task/i);
+	});
+
+	it('D-17: forceCheckIn fires for every task_modify action and task_create', async () => {
+		const task1 = taskService.create({ name: 'T1' });
+		const task2 = taskService.create({ name: 'T2' });
+		const task3 = taskService.create({ name: 'T3' });
+		taskService.startTimer(task3.id); // to make stop_timer valid later
+		const task4 = taskService.create({ name: 'T4' });
+		const task5 = taskService.create({ name: 'T5' });
+
+		const forceCheckIn = vi.fn().mockResolvedValue(undefined);
+		const checkInService = { forceCheckIn } as unknown as CheckInService;
+
+		// task_create
+		llm.setFixture('intent_classifier', {
+			intent: 'task_create',
+			confidence: 0.95,
+			suggested_chunk_id: null,
+			suggested_branch_name: null,
+			is_essential: false,
+		});
+		llm.setFixture('task_parse', { name: 'New T', taskType: 'ad-hoc', isEssential: false });
+		await routeTextInput('add new T', {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			checkInService,
+			logger: createTestLogger(),
+		});
+		expect(forceCheckIn).toHaveBeenLastCalledWith('task_action');
+
+		// task_modify done
+		llm.setFixture('intent_classifier', {
+			intent: 'task_modify',
+			confidence: 0.95,
+			task_id: task1.id,
+			action: 'done',
+		});
+		await routeTextInput(`done ${task1.id}`, {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			checkInService,
+			logger: createTestLogger(),
+		});
+		expect(forceCheckIn).toHaveBeenLastCalledWith('task_action');
+
+		// task_modify postpone
+		llm.setFixture('intent_classifier', {
+			intent: 'task_modify',
+			confidence: 0.95,
+			task_id: task2.id,
+			action: 'postpone',
+		});
+		await routeTextInput(`postpone ${task2.id}`, {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			checkInService,
+			logger: createTestLogger(),
+		});
+		expect(forceCheckIn).toHaveBeenLastCalledWith('task_action');
+
+		// task_modify stop_timer (task3 has running timer)
+		llm.setFixture('intent_classifier', {
+			intent: 'task_modify',
+			confidence: 0.95,
+			task_id: task3.id,
+			action: 'stop_timer',
+		});
+		await routeTextInput(`stop ${task3.id}`, {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			checkInService,
+			logger: createTestLogger(),
+		});
+		expect(forceCheckIn).toHaveBeenLastCalledWith('task_action');
+
+		// task_modify start_timer
+		llm.setFixture('intent_classifier', {
+			intent: 'task_modify',
+			confidence: 0.95,
+			task_id: task4.id,
+			action: 'start_timer',
+		});
+		await routeTextInput(`start ${task4.id}`, {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			checkInService,
+			logger: createTestLogger(),
+		});
+		expect(forceCheckIn).toHaveBeenLastCalledWith('task_action');
+
+		// task_modify delete
+		llm.setFixture('intent_classifier', {
+			intent: 'task_modify',
+			confidence: 0.95,
+			task_id: task5.id,
+			action: 'delete',
+		});
+		await routeTextInput(`delete ${task5.id}`, {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			checkInService,
+			logger: createTestLogger(),
+		});
+		expect(forceCheckIn).toHaveBeenLastCalledWith('task_action');
+
+		// 6 mutations: task_create + 5 task_modify actions
+		expect(forceCheckIn).toHaveBeenCalledTimes(6);
+	});
+
+	it('D-16: task_query with scope="current_chunk" narrows to current chunk tasks', async () => {
+		// Set up a task attached to chunk 50 and one that is not
+		seedPlanChunkRows([50]);
+		const attached = taskService.create({
+			name: 'In chunk',
+			chunkId: 50,
+			branchName: 'Day branch',
+		});
+		taskService.create({ name: 'Unattached' });
+
+		const now = new Date();
+		const startHh = `${String(now.getHours()).padStart(2, '0')}:00`;
+		const endHh = `${String((now.getHours() + 1) % 24).padStart(2, '0')}:00`;
+
+		llm.setFixture('intent_classifier', {
+			intent: 'task_query',
+			confidence: 0.95,
+			scope: 'current_chunk',
+		});
+
+		const intentClassifierService = mkClassifier();
+		const dailyPlanService = mkPlanService([mkChunk(50, startHh, endHh, 'Day branch')]);
+
+		const result = await routeTextInput('show me my current chunk tasks', {
+			taskService,
+			parser,
+			intentClassifierService,
+			dailyPlanService,
+			logger: createTestLogger(),
+		});
+
+		// Should render only chunk-attached task
+		expect(result.reply).toContain('In chunk');
+		expect(result.reply).not.toContain('Unattached');
+		// Make sure we actually looked something up
+		expect(attached.id).toBeGreaterThan(0);
+	});
+
+	it('D-16: task_query with scope="current_chunk" but no active chunk falls back to all tasks', async () => {
+		taskService.create({ name: 'T1' });
+		taskService.create({ name: 'T2' });
+
+		llm.setFixture('intent_classifier', {
+			intent: 'task_query',
+			confidence: 0.95,
+			scope: 'current_chunk',
+		});
+
+		const result = await routeTextInput('current chunk tasks', {
+			taskService,
+			parser,
+			intentClassifierService: mkClassifier(),
+			dailyPlanService: mkEmptyPlanService(),
+			logger: createTestLogger(),
+		});
+
+		expect(result.reply).toMatch(/No current chunk/i);
+		expect(result.reply).toContain('T1');
+		expect(result.reply).toContain('T2');
 	});
 });

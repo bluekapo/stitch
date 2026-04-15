@@ -1,5 +1,6 @@
 import { addDays, format } from 'date-fns';
 import { desc, eq } from 'drizzle-orm';
+import pino, { type Logger } from 'pino';
 import type { CheckInService } from '../../../core/check-in-service.js';
 import { resolveCurrentChunkAttachment } from '../../../core/current-chunk.js';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
@@ -8,6 +9,7 @@ import {
 	CONFIDENCE_THRESHOLD,
 	type IntentClassifierService,
 } from '../../../core/intent-classifier.js';
+import { reqId } from '../../../core/logger.js';
 import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
 import type { StitchDb } from '../../../db/index.js';
@@ -36,7 +38,17 @@ export interface TextRouterDeps {
 	// Phase 10 (D-18): DB access for reading chunk_tasks prediction columns
 	// at task completion time. Optional for backward compat with existing tests.
 	db?: StitchDb;
+	// Phase 12 (D-11, D-20): pino logger for structured request logs. Optional
+	// for backward compat with existing tests — production wiring ALWAYS passes
+	// the root or a tagged child logger. When absent, the router falls back to
+	// a silent pino so `log.error(...)` calls remain valid no-ops.
+	logger?: Logger;
 }
+
+// Phase 12 (D-11): silent fallback so the router never crashes on a missing
+// logger in legacy test wiring. Production call sites in src/channels/telegram/
+// always pass a real tagged logger.
+const silentLogger: Logger = pino({ level: 'silent' });
 
 // Phase 10 (D-18): read the most recent chunk_tasks row for a task to
 // get its prediction columns. Used for the completion diff line.
@@ -66,135 +78,43 @@ export function readPredictionFromDb(
 }
 
 /**
- * Route text input through explicit fast-paths or LLM classifier dispatch.
+ * Phase 12 (D-13): LLM-only input surface. ALL text (except slash commands)
+ * is classified by the LLM. Regex fast-paths were removed in 12-04 per D-13
+ * (single input surface) and D-19 (fail-closed — no regex resurrection on
+ * classifier failure).
  *
- * Order of precedence (D-20 — explicit syntax wins):
+ * Order of precedence:
  *   1. Slash commands → skip (handled by grammY command handlers)
- *   2. ID-based fast-paths (delete N, start N, stop N, done N, postpone N)
- *   3. Tree prefix block (tree show, tree edit X, tree X)
- *   4. Classifier dispatch (everything else, including bare "list", "add foo")
+ *   2. Classifier dispatch for everything else
  *
- * The classifier dispatch was introduced in Phase 08.4 to replace the
- * "anything unrecognized is a task" NL fallback. Voice/text "Change dinner to
- * 20:00" now routes to DayTreeService.editTree() instead of being mis-parsed
- * into a task name.
+ * On classifier failure: reply with a JARVIS-voice "Classification failed"
+ * message directing the user to the hub buttons. NO fallback to regex
+ * extraction, NO silent task creation. See D-19.
+ *
+ * Per-interaction `reqLogger` (3rd arg) is created by the caller at the text
+ * or voice entry point so one request_id ties together the text-handler log
+ * line, the classifier log line, and the service mutation log line (D-11).
+ * When omitted, this function creates its own reqLogger from `deps.logger`.
  */
 export async function routeTextInput(
 	text: string,
 	deps: TextRouterDeps,
+	reqLogger?: Logger,
 ): Promise<{ reply: string }> {
 	const { taskService, parser } = deps;
 
 	// Skip slash commands
 	if (text.startsWith('/')) return { reply: '' };
 
+	// D-11: request-scoped child logger. Callers that already hold a reqLogger
+	// pass it through; otherwise we synthesize one here so every mutating
+	// service call gets a correlation id for the log line.
+	const baseLogger = deps.logger ?? silentLogger;
+	const log = reqLogger ?? baseLogger.child({ req_id: reqId() });
+	log.debug({ input: text.slice(0, 80) }, 'routeTextInput:start');
+
 	try {
-		// --- Explicit ID-based fast-paths (D-20) ---
-
-		// delete <id>
-		const deleteMatch = text.match(/^delete (\d+)$/i);
-		if (deleteMatch) {
-			const id = Number(deleteMatch[1]);
-			const task = taskService.getById(id);
-			if (!task) return { reply: 'Task not found.' };
-			taskService.delete(id);
-			return { reply: `Deleted: ${task.name} (#${task.id})` };
-		}
-
-		// start <id>
-		const startMatch = text.match(/^start (\d+)$/i);
-		if (startMatch) {
-			const id = Number(startMatch[1]);
-			const task = taskService.getById(id);
-			if (!task) return { reply: 'Task not found.' };
-			taskService.startTimer(id);
-			return { reply: `Timer started: ${task.name} (#${task.id})` };
-		}
-
-		// stop <id>
-		const stopMatch = text.match(/^stop (\d+)$/i);
-		if (stopMatch) {
-			const id = Number(stopMatch[1]);
-			const task = taskService.getById(id);
-			if (!task) return { reply: 'Task not found.' };
-			const durationSeconds = taskService.stopTimer(id);
-			return {
-				reply: `Timer stopped: ${task.name} (#${task.id}) -- ${formatDuration(durationSeconds)}`,
-			};
-		}
-
-		// done <id>
-		const doneMatch = text.match(/^done (\d+)$/i);
-		if (doneMatch) {
-			const id = Number(doneMatch[1]);
-			const task = taskService.getById(id);
-			if (!task) return { reply: 'Task not found.' };
-
-			const hadTimer = !!task.timerStartedAt;
-			const pred = readPredictionFromDb(deps.db, id);
-
-			let actualSeconds = 0;
-			if (hadTimer) {
-				actualSeconds = taskService.stopTimer(id);
-			}
-			taskService.update(id, { status: 'completed' });
-			deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
-
-			const reply = hadTimer
-				? formatCompletionWithDiff(
-						task.name,
-						task.id,
-						actualSeconds,
-						pred.predictedMaxSeconds,
-						pred.predictedConfidence,
-					)
-				: `Done: ${task.name} (#${task.id})`;
-			return { reply };
-		}
-
-		// postpone <id>
-		const postponeMatch = text.match(/^postpone (\d+)$/i);
-		if (postponeMatch) {
-			const id = Number(postponeMatch[1]);
-			taskService.postpone(id);
-			deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
-			const updated = taskService.getById(id);
-			if (!updated) {
-				throw new Error(
-					`text-router: expected task #${id} to exist after postpone() succeeded — getById returned undefined`,
-				);
-			}
-			return {
-				reply: `Postponed: ${updated.name} (#${id}) -- ${updated.postponeCount} times total`,
-			};
-		}
-
-		// --- Tree commands (D-20 — explicit `tree` prefix wins over classifier) ---
-		if (deps.dayTreeService) {
-			// tree show (most specific -- check first)
-			if (/^tree show$/i.test(text)) {
-				const tree = deps.dayTreeService.getTree();
-				if (!tree)
-					return { reply: 'No day tree set. Use "tree &lt;description&gt;" to create one.' };
-				return { reply: renderTreeView(tree) };
-			}
-
-			// tree edit <modification> (check before catch-all "tree <description>")
-			const editMatch = text.match(/^tree edit (.+)$/is);
-			if (editMatch) {
-				const tree = await deps.dayTreeService.editTree(editMatch[1].trim());
-				return { reply: `Day tree updated.\n\n${renderTreeView(tree)}` };
-			}
-
-			// tree <description> (catch-all for tree prefix)
-			const treeMatch = text.match(/^tree (.+)$/is);
-			if (treeMatch) {
-				const tree = await deps.dayTreeService.setTree(treeMatch[1].trim());
-				return { reply: `Day tree created.\n\n${renderTreeView(tree)}` };
-			}
-		}
-
-		// --- Classifier dispatch (D-01, Phase 08.4) ---
+		// --- Classifier dispatch (D-13: single input surface, fail-closed per D-19) ---
 		if (!deps.intentClassifierService) {
 			// Backward-compat for tests that don't wire the classifier.
 			// Production wiring is in src/app.ts and src/channels/telegram/index.ts;
@@ -205,18 +125,18 @@ export async function routeTextInput(
 
 		let classified: ClassifiedIntent;
 		try {
-			classified = await deps.intentClassifierService.classify(text);
+			classified = await deps.intentClassifierService.classify(text, log);
 		} catch (err) {
-			// D-35: fail-closed. NO fallback to silent task creation.
-			// D-37: log the failure (Pino via Fastify is wired at the app level;
-			// here we use console.error to keep the router free of logger DI).
-			console.error('intent classifier failed:', {
-				input: text.slice(0, 100),
-				error: (err as Error).message,
-			});
+			// D-19: fail-closed. NO regex resurrection — the regex block was
+			// deleted in 12-04. The user is directed to the hub buttons which
+			// have no classifier dependency.
+			// D-20: structured logging via reqLogger — no console sink.
+			log.error(
+				{ input: text.slice(0, 100), err: (err as Error).message },
+				'intent classifier failed',
+			);
 			return {
-				reply:
-					'Classification failed. Please try again or use an explicit command: add &lt;name&gt;, tree edit &lt;change&gt;, list.',
+				reply: 'Classification failed. Please try again or use the hub buttons.',
 			};
 		}
 
@@ -250,20 +170,23 @@ export async function routeTextInput(
 					branchName = fallback.branchName;
 				}
 
-				const task = taskService.create({
-					name: parsed.name,
-					description: parsed.description,
-					// Either signal wins on essential — classifier's is_essential
-					// catches phrases like "I MUST do X today"; parser's isEssential
-					// catches add!-style explicit markers via NL.
-					isEssential: parsed.isEssential || classified.is_essential,
-					taskType: parsed.taskType,
-					deadline: parsed.deadline,
-					recurrenceDay,
-					chunkId,
-					branchName,
-				});
-				deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
+				const task = taskService.create(
+					{
+						name: parsed.name,
+						description: parsed.description,
+						// Either signal wins on essential — classifier's is_essential
+						// catches phrases like "I MUST do X today"; parser's isEssential
+						// catches add!-style explicit markers via NL.
+						isEssential: parsed.isEssential || classified.is_essential,
+						taskType: parsed.taskType,
+						deadline: parsed.deadline,
+						recurrenceDay,
+						chunkId,
+						branchName,
+					},
+					log,
+				);
+				deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-17
 
 				let reply = classified.is_essential
 					? `Essential task created: ${task.name} (#${task.id})`
@@ -278,46 +201,84 @@ export async function routeTextInput(
 			case 'task_modify': {
 				const target = taskService.getById(classified.task_id);
 				if (!target) return { reply: `Task #${classified.task_id} not found.` };
-				if (classified.action === 'done') {
-					const hadTimer = !!target.timerStartedAt;
-					const pred = readPredictionFromDb(deps.db, target.id);
 
-					let actualSeconds = 0;
-					if (hadTimer) {
-						actualSeconds = taskService.stopTimer(target.id);
+				switch (classified.action) {
+					case 'done': {
+						const hadTimer = !!target.timerStartedAt;
+						const pred = readPredictionFromDb(deps.db, target.id);
+						let actualSeconds = 0;
+						if (hadTimer) {
+							actualSeconds = taskService.stopTimer(target.id, log);
+						}
+						taskService.update(target.id, { status: 'completed' }, log);
+						deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-17
+						return {
+							reply: hadTimer
+								? formatCompletionWithDiff(
+										target.name,
+										target.id,
+										actualSeconds,
+										pred.predictedMaxSeconds,
+										pred.predictedConfidence,
+									)
+								: `Done: ${target.name} (#${target.id})`,
+						};
 					}
-					taskService.update(target.id, { status: 'completed' });
-					deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
 
-					const reply = hadTimer
-						? formatCompletionWithDiff(
-								target.name,
-								target.id,
-								actualSeconds,
-								pred.predictedMaxSeconds,
-								pred.predictedConfidence,
-							)
-						: `Done: ${target.name} (#${target.id})`;
-					return { reply };
-				}
-				if (classified.action === 'postpone') {
-					taskService.postpone(target.id);
-					deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-05.4
-					const updated = taskService.getById(target.id);
-					if (!updated) {
-						throw new Error(
-							`text-router: expected task #${target.id} to exist after postpone() succeeded — getById returned undefined`,
-						);
+					case 'postpone': {
+						taskService.postpone(target.id, log);
+						deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-17
+						const updated = taskService.getById(target.id);
+						if (!updated) {
+							throw new Error(
+								`text-router: expected task #${target.id} to exist after postpone() succeeded — getById returned undefined`,
+							);
+						}
+						return {
+							reply: `Postponed: ${updated.name} (#${updated.id}) -- ${updated.postponeCount} times total`,
+						};
 					}
-					return {
-						reply: `Postponed: ${updated.name} (#${updated.id}) -- ${updated.postponeCount} times total`,
-					};
+
+					case 'delete': {
+						const name = target.name;
+						taskService.delete(target.id, log);
+						deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-17
+						return { reply: `Deleted: ${name} (#${classified.task_id})` };
+					}
+
+					case 'start_timer': {
+						taskService.startTimer(target.id, log);
+						deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-17
+						return { reply: `Timer started: ${target.name} (#${target.id})` };
+					}
+
+					case 'stop_timer': {
+						// TaskService throws 'No timer running on this task.' if none.
+						// D-36 outer catch converts to JARVIS reply (D-15 state-mismatch contract).
+						const durationSeconds = taskService.stopTimer(target.id, log);
+						deps.checkInService?.forceCheckIn('task_action').catch(() => {}); // D-17
+						return {
+							reply: `Timer stopped: ${target.name} (#${target.id}) -- ${formatDuration(durationSeconds)}`,
+						};
+					}
 				}
+				// TypeScript exhaustive: classified.action is the 5-value union.
 				return { reply: 'Unsupported action.' };
 			}
 
-			case 'task_query':
+			case 'task_query': {
+				// D-16: scope='current_chunk' narrows the view to the active chunk.
+				if (classified.scope === 'current_chunk') {
+					const attach = resolveCurrentChunkAttachment(deps.dailyPlanService);
+					if (attach.chunkId == null) {
+						return {
+							reply: `No current chunk active, Sir. Showing all pending tasks.\n\n${renderTaskListText(taskService.list())}`,
+						};
+					}
+					return { reply: renderTaskListText(taskService.listForChunk(attach.chunkId)) };
+				}
 				return { reply: renderTaskListText(taskService.list()) };
+			}
 
 			case 'tree_edit': {
 				if (!deps.dayTreeService) return { reply: 'Day tree service not configured.' };
@@ -330,7 +291,8 @@ export async function routeTextInput(
 				const tree = deps.dayTreeService.getTree();
 				if (!tree)
 					return {
-						reply: 'No day tree set, Sir. Use `tree &lt;description&gt;` to create one.',
+						reply:
+							'No day tree set, Sir. Tree creation will become conversational in the next update.',
 					};
 				return { reply: renderTreeView(tree) };
 			}
@@ -343,7 +305,7 @@ export async function routeTextInput(
 						? format(addDays(new Date(), 1), 'yyyy-MM-dd')
 						: format(new Date(), 'yyyy-MM-dd');
 				try {
-					const result = await deps.dailyPlanService.generatePlan(date);
+					const result = await deps.dailyPlanService.generatePlan(date, log);
 					const when = classified.target_date === 'tomorrow' ? 'for tomorrow' : 'for today';
 					return { reply: `Plan ${when} regenerated. ${result.chunks.length} chunks.` };
 				} catch (err) {
@@ -351,7 +313,8 @@ export async function routeTextInput(
 					const msg = (err as Error).message;
 					if (msg.includes('No day tree')) {
 						return {
-							reply: 'No day tree set, Sir. Use `tree &lt;description&gt;` to create one first.',
+							reply:
+								'No day tree set, Sir. Tree creation will become conversational in the next update.',
 						};
 					}
 					return { reply: `Error: ${escapeHtml(msg)}` };
@@ -360,6 +323,19 @@ export async function routeTextInput(
 
 			case 'plan_view': {
 				if (!deps.dailyPlanService) return { reply: 'Plan service not configured.' };
+				// D-16: target_date='tomorrow' renders the plan for tomorrow if one
+				// exists. buildFullDayPlanView is today-scoped by default, so we read
+				// the tomorrow plan via getPlan(date) and pass it explicitly.
+				if (classified.target_date === 'tomorrow') {
+					const tomorrowDate = format(addDays(new Date(), 1), 'yyyy-MM-dd');
+					const plan = deps.dailyPlanService.getPlan?.(tomorrowDate);
+					if (!plan) return { reply: 'No plan for tomorrow yet, Sir.' };
+					const view = buildFullDayPlanView(deps.dailyPlanService, {
+						id: plan.id,
+						date: plan.date,
+					});
+					return { reply: renderDayPlanView(view, 'full') };
+				}
 				const view = buildFullDayPlanView(deps.dailyPlanService);
 				return { reply: renderDayPlanView(view, 'full') };
 			}
@@ -368,7 +344,7 @@ export async function routeTextInput(
 		// D-36: downstream service errors (editTree throws, generatePlan throws,
 		// taskService.create throws) bubble up here and produce a contextual
 		// error reply. The classifier-level catch above is more specific and
-		// handles classifier failures separately so D-35 fail-closed semantics
+		// handles classifier failures separately so D-19 fail-closed semantics
 		// are preserved.
 		return { reply: `Error: ${escapeHtml((err as Error).message)}` };
 	}

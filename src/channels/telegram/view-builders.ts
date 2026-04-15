@@ -148,9 +148,13 @@ export function buildCurrentChunkTasksView(
  */
 export function buildFullDayPlanView(
 	dailyPlanService?: DailyPlanService,
+	explicitPlan?: { id: number; date: string },
 ): DailyPlanView | undefined {
 	if (!dailyPlanService) return undefined;
-	const plan = dailyPlanService.getTodayPlan();
+	// Phase 12 (D-16): explicit plan override for tomorrow-view. When omitted,
+	// fall back to today per the original Phase 08.3 behaviour — existing
+	// callers (day-plan-menu Full Day Plan button) pass no second argument.
+	const plan = explicitPlan ?? dailyPlanService.getTodayPlan();
 	if (!plan) return undefined;
 
 	const { chunks } = dailyPlanService.getPlanWithChunks(plan.id);
