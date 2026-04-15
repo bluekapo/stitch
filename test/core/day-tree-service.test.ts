@@ -200,10 +200,11 @@ describe('DayTreeService', () => {
 		expect(result.branches[3].name).toBe('Dinner');
 	});
 
-	it('editTree throws when no tree exists', async () => {
-		await expect(service.editTree('anything')).rejects.toThrow(
-			'No day tree set. Use "tree <description>" first.',
-		);
+	it('editTree throws a Phase-13 signpost error when no tree exists (D-21)', async () => {
+		// D-21 (Phase 12): error message drops the legacy "tree <description>"
+		// command and signposts the Phase 13 conversational wizard. Match on the
+		// enduring signposts so copy tweaks do not break the test.
+		await expect(service.editTree('anything')).rejects.toThrow(/Phase|next update|conversational/i);
 	});
 
 	it('getTreeRow returns undefined when no tree exists', () => {

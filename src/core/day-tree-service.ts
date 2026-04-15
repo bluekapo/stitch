@@ -65,7 +65,12 @@ export class DayTreeService {
 		log.debug({ modification }, 'dayTree.editTree:start');
 		const current = this.getTree();
 		if (!current) {
-			throw new Error('No day tree set. Use "tree <description>" first.');
+			// D-21 (Phase 12): no free-text path to create a tree exists between
+			// Phase 12 and Phase 13. The legacy "tree <description>" regex was
+			// removed; conversational tree creation lands in Phase 13.
+			throw new Error(
+				'No day tree set, Sir. Tree creation will become conversational in the next update — for now, please use the hub to seed a tree.',
+			);
 		}
 
 		const result = await this.llmProvider.complete({
