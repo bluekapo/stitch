@@ -73,6 +73,21 @@ export function recoverOrphanedLog(logDir: string, logName = 'stitch.log'): void
 	const orphanPath = path.join(logDir, logName);
 	if (!fs.existsSync(orphanPath)) return;
 
+	// Skip zero-byte orphans. Under `node --watch` on Windows, each file-change
+	// restart force-kills the child (subprocess.kill ignores the signal arg on
+	// Windows — always SIGKILL-equivalent). That leaves behind a 0-byte
+	// stitch.log whenever the kill lands before pino writes its first line.
+	// Rotating those creates a pile of empty stitch-{ts}.log siblings for no
+	// value; just delete and move on.
+	try {
+		if (fs.statSync(orphanPath).size === 0) {
+			fs.unlinkSync(orphanPath);
+			return;
+		}
+	} catch {
+		// stat failure falls through to the normal rotate path
+	}
+
 	let when: Date | null = parseLastLineTimestamp(orphanPath);
 	if (!when) {
 		try {

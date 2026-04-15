@@ -131,18 +131,20 @@ describe('D-03: recoverOrphanedLog', () => {
 		expect(fs.existsSync(path.join(tmpDir, expectedName))).toBe(true);
 	});
 
-	it('falls back to mtime when the file is empty (zero bytes)', () => {
+	it('deletes zero-byte orphans instead of rotating them', () => {
+		// Under `node --watch` on Windows, every file-change restart
+		// force-kills the child (subprocess.kill is always SIGKILL-equivalent
+		// on Windows), producing a 0-byte stitch.log when the kill lands
+		// before pino writes its first line. Rotating those has no log
+		// content to preserve — delete + return is the correct behavior.
 		const orphan = path.join(tmpDir, 'stitch.log');
 		fs.writeFileSync(orphan, '');
-
-		const fakeMtime = new Date(2025, 5, 1, 9, 15, 30);
-		fs.utimesSync(orphan, fakeMtime, fakeMtime);
 
 		recoverOrphanedLog(tmpDir);
 
 		expect(fs.existsSync(orphan)).toBe(false);
-		const expectedName = `stitch-${formatStamp(fakeMtime)}.log`;
-		expect(fs.existsSync(path.join(tmpDir, expectedName))).toBe(true);
+		const rotated = fs.readdirSync(tmpDir).filter((f) => f.startsWith('stitch-'));
+		expect(rotated).toEqual([]);
 	});
 
 	it('is a no-op when stitch.log is absent (no throw, no files created)', () => {
