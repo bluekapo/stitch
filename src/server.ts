@@ -18,11 +18,9 @@ const shutdown = async (signal: string) => {
 	// frequently lost mid-write.
 	try {
 		const sentinelPath = path.join(path.resolve(config.LOG_DIR), 'shutdown-sentinel.txt');
-		fs.writeFileSync(
-			sentinelPath,
-			`${new Date().toISOString()} ${signal} pid=${process.pid}\n`,
-			{ flag: 'a' },
-		);
+		fs.writeFileSync(sentinelPath, `${new Date().toISOString()} ${signal} pid=${process.pid}\n`, {
+			flag: 'a',
+		});
 		process.stderr.write(`[shutdown] ${signal} fired (pid=${process.pid})\n`);
 	} catch {
 		// best-effort — never block shutdown on sentinel write
