@@ -1,12 +1,20 @@
 import { desc, eq, sql, sum } from 'drizzle-orm';
+import type { Logger } from 'pino';
 import type { StitchDb } from '../db/index.js';
 import { chunkTasks, taskDurations, tasks } from '../db/schema.js';
 import type { CreateTaskInput, TaskDetail, TaskListItem } from '../types/task.js';
 
 export class TaskService {
-	constructor(private db: StitchDb) {}
+	// D-12: `logger` is REQUIRED. Callers MUST pass a pino-compatible logger
+	// (typically `rootLogger.child({ service: 'TaskService' })` from buildApp
+	// or `createTestLogger()` from test/helpers/logger.ts).
+	constructor(
+		private db: StitchDb,
+		private logger: Logger,
+	) {}
 
-	create(input: CreateTaskInput): { id: number; name: string } {
+	create(input: CreateTaskInput, reqLogger?: Logger): { id: number; name: string } {
+		const log = reqLogger ?? this.logger;
 		const rows = this.db
 			.insert(tasks)
 			.values({
@@ -24,6 +32,7 @@ export class TaskService {
 			})
 			.returning({ id: tasks.id, name: tasks.name })
 			.all();
+		log.debug({ taskId: rows[0].id, name: input.name }, 'task.create');
 		return rows[0];
 	}
 
@@ -64,7 +73,9 @@ export class TaskService {
 			description?: string;
 			status?: 'pending' | 'active' | 'completed' | 'skipped';
 		},
+		reqLogger?: Logger,
 	) {
+		const log = reqLogger ?? this.logger;
 		const task = this.getById(id);
 		if (!task) throw new Error('Task not found.');
 		// Essential tasks block name/description changes but allow status changes (e.g., completion)
@@ -76,16 +87,20 @@ export class TaskService {
 			.set({ ...data, updatedAt: sql`(datetime('now'))` })
 			.where(eq(tasks.id, id))
 			.run();
+		log.debug({ taskId: id, data }, 'task.update');
 	}
 
-	delete(id: number) {
+	delete(id: number, reqLogger?: Logger) {
+		const log = reqLogger ?? this.logger;
 		const task = this.getById(id);
 		if (!task) throw new Error('Task not found.');
 		if (task.isEssential) throw new Error('Cannot delete a locked task.');
 		this.db.delete(tasks).where(eq(tasks.id, id)).run();
+		log.debug({ taskId: id }, 'task.delete');
 	}
 
-	startTimer(id: number) {
+	startTimer(id: number, reqLogger?: Logger) {
+		const log = reqLogger ?? this.logger;
 		const task = this.getById(id);
 		if (!task) throw new Error('Task not found.');
 		if (task.timerStartedAt) throw new Error('Timer already running on this task.');
@@ -98,6 +113,7 @@ export class TaskService {
 			})
 			.where(eq(tasks.id, id))
 			.run();
+		log.debug({ taskId: id }, 'task.startTimer');
 	}
 
 	/**
@@ -137,7 +153,8 @@ export class TaskService {
 		};
 	}
 
-	stopTimer(id: number): number {
+	stopTimer(id: number, reqLogger?: Logger): number {
+		const log = reqLogger ?? this.logger;
 		const task = this.getById(id);
 		if (!task) throw new Error('Task not found.');
 		if (!task.timerStartedAt) throw new Error('No timer running on this task.');
@@ -171,10 +188,12 @@ export class TaskService {
 			.where(eq(tasks.id, id))
 			.run();
 
+		log.debug({ taskId: id, durationSeconds }, 'task.stopTimer');
 		return durationSeconds;
 	}
 
-	postpone(id: number) {
+	postpone(id: number, reqLogger?: Logger) {
+		const log = reqLogger ?? this.logger;
 		const task = this.getById(id);
 		if (!task) throw new Error('Task not found.');
 		if (task.isEssential) throw new Error('Cannot postpone a locked task.');
@@ -205,6 +224,8 @@ export class TaskService {
 			})
 			.where(eq(tasks.id, id))
 			.run();
+
+		log.debug({ taskId: id }, 'task.postpone');
 	}
 
 	/**
@@ -217,7 +238,8 @@ export class TaskService {
 	 * task_durations row. Callers (check-in-service, future UI) should switch
 	 * to this explicit method.
 	 */
-	skip(id: number) {
+	skip(id: number, reqLogger?: Logger) {
+		const log = reqLogger ?? this.logger;
 		const task = this.getById(id);
 		if (!task) throw new Error('Task not found.');
 
@@ -245,6 +267,8 @@ export class TaskService {
 			})
 			.where(eq(tasks.id, id))
 			.run();
+
+		log.debug({ taskId: id }, 'task.skip');
 	}
 
 	getTaskDetail(id: number): TaskDetail | undefined {

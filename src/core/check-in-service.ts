@@ -32,7 +32,9 @@ export interface CheckInServiceOptions {
 	bot?: { api: Api }; // optional — late-bound via setBot() after Telegram setup
 	hubManager?: HubManager; // optional — late-bound via setHubManager() after Telegram setup
 	userChatId?: number; // from config.TELEGRAM_ALLOWED_USER_ID
-	logger?: Logger;
+	// D-12 (Phase 12): REQUIRED. Previously optional; every caller already
+	// passes one and we now depend on it for structured logging.
+	logger: Logger;
 	tickIntervalMs?: number; // default 30_000
 	cleanupTtlMs?: number; // default 900_000 (15 min)
 	now?: () => Date; // injected for test determinism
@@ -67,7 +69,7 @@ export class CheckInService {
 	private bot?: { api: Api };
 	private hubManager?: HubManager;
 	private readonly userChatId?: number;
-	private readonly logger?: Logger;
+	private readonly logger: Logger;
 
 	constructor(opts: CheckInServiceOptions) {
 		this.llmProvider = opts.llmProvider;

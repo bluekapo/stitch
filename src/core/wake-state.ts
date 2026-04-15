@@ -43,7 +43,8 @@ export interface WakeStateServiceOptions {
 	dayTreeService: DayTreeService;
 	checkInService: CheckInServiceLike;
 	debounceMs: number; // from config.WAKE_DEBOUNCE_MS (default 300_000)
-	logger?: Logger;
+	// D-12 (Phase 12): REQUIRED.
+	logger: Logger;
 	now?: () => Date; // injectable for tests; defaults to () => new Date()
 }
 
@@ -53,7 +54,7 @@ export class WakeStateService {
 	private dayTreeService: DayTreeService;
 	private checkInService: CheckInServiceLike;
 	private debounceMs: number;
-	private logger: Logger | undefined;
+	private logger: Logger;
 	private now: () => Date;
 
 	constructor(options: WakeStateServiceOptions) {

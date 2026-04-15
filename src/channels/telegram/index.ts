@@ -1,4 +1,5 @@
 import type { Bot } from 'grammy';
+import type { Logger } from 'pino';
 import type { AppConfig } from '../../config.js';
 import type { CheckInService } from '../../core/check-in-service.js';
 import type { DailyPlanService } from '../../core/daily-plan-service.js';
@@ -36,6 +37,10 @@ export interface TelegramSetupOptions {
 	// mutations. Optional so existing tests and non-check-in-service paths
 	// continue to work.
 	checkInService?: CheckInService;
+	// D-12 (Phase 12): REQUIRED pino logger. Passed by buildApp — the Telegram
+	// channel uses it to instantiate TaskParserService (which now requires a
+	// logger) and for its own request-scoped child loggers.
+	logger: Logger;
 }
 
 export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel {
@@ -49,6 +54,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		sttProvider,
 		intentClassifierService,
 		checkInService,
+		logger,
 	} = options;
 
 	const bot = createBot({
@@ -85,7 +91,10 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		await hub.sendHub(chatId, text, hubMenu, ctx);
 	});
 
-	const parser = new TaskParserService(llmProvider);
+	const parser = new TaskParserService(
+		llmProvider,
+		logger.child({ service: 'TaskParserService' }),
+	);
 
 	// Voice handler: transcribe → routeTextInput → cleanup.
 	// Phase 08.4 Pitfall 5: registerVoiceHandler now takes an options object.

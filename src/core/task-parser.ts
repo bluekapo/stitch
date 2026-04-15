@@ -1,11 +1,18 @@
+import type { Logger } from 'pino';
 import type { LlmProvider } from '../providers/llm.js';
 import { type TaskParseResult, TaskParseSchema } from '../schemas/task-parse.js';
 
 export class TaskParserService {
-	constructor(private llm: LlmProvider) {}
+	// D-12: `logger` REQUIRED.
+	constructor(
+		private llm: LlmProvider,
+		private logger: Logger,
+	) {}
 
-	async parse(userInput: string): Promise<TaskParseResult> {
-		return this.llm.complete({
+	async parse(userInput: string, reqLogger?: Logger): Promise<TaskParseResult> {
+		const log = reqLogger ?? this.logger;
+		log.debug({ userInput }, 'taskParser.parse:start');
+		const result = await this.llm.complete({
 			messages: [
 				{
 					role: 'system',
@@ -26,5 +33,7 @@ Rules:
 			maxTokens: 256,
 			thinking: false,
 		});
+		log.debug({ name: result.name, taskType: result.taskType }, 'taskParser.parse:done');
+		return result;
 	}
 }

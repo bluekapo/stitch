@@ -39,12 +39,14 @@ export interface PredictionPendingTask {
 }
 
 export class PredictionService {
+	// D-12 (Phase 12): `logger` is now REQUIRED — fail-closed DI. Previously
+	// optional, but every caller in the app already passes one.
 	constructor(
 		private db: StitchDb,
 		private taskService: TaskService,
 		private dayTreeService: DayTreeService,
 		private llmProvider: LlmProvider,
-		private logger?: Logger,
+		private logger: Logger,
 	) {}
 
 	/**
@@ -57,8 +59,12 @@ export class PredictionService {
 	 */
 	async predictDurations(
 		pendingTasks: PredictionPendingTask[],
+		reqLogger?: Logger,
 	): Promise<Map<number, PredictionItem>> {
+		const log = reqLogger ?? this.logger;
 		if (pendingTasks.length === 0) return new Map();
+
+		log.debug({ count: pendingTasks.length }, 'prediction.predict:start');
 
 		// ---------- PHASE 1: gather context (sync) ----------
 		const perTaskHistory = new Map<number, TaskDurationRow[]>();
@@ -82,11 +88,11 @@ export class PredictionService {
 		try {
 			result = await this.callLlm(userPrompt);
 		} catch (firstErr) {
-			this.logger?.warn({ err: firstErr }, 'prediction LLM call failed, retrying once (D-06)');
+			log.warn({ err: firstErr }, 'prediction LLM call failed, retrying once (D-06)');
 			try {
 				result = await this.callLlm(userPrompt);
 			} catch (secondErr) {
-				this.logger?.warn(
+				log.warn(
 					{ err: secondErr },
 					'prediction LLM call failed twice, falling through with empty Map (D-06)',
 				);

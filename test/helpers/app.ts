@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import type { AppConfig } from '../../src/config.js';
@@ -6,9 +9,18 @@ import type { LlmProvider } from '../../src/providers/llm.js';
 import type { SttProvider } from '../../src/providers/stt.js';
 import { createTestDb } from './db.js';
 
+/**
+ * Phase 12 note: `LOG_DIR` defaults to a per-process tmpdir so tests never
+ * pollute the repo's `./data/logs` directory. Individual tests that care
+ * about rotation (e.g. `test/app/logger-lifecycle.test.ts`) pass their own
+ * LOG_DIR via `overrides`.
+ */
+const defaultLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stitch-test-logs-'));
+
 const testConfig: AppConfig = {
 	PORT: 0,
 	LOG_LEVEL: 'silent' as const,
+	LOG_DIR: defaultLogDir,
 	LLAMA_SERVER_URL: 'http://localhost:8080',
 	LLAMA_MODEL_NAME: 'test-model',
 	LLM_PROVIDER: 'mock' as const,
@@ -32,8 +44,16 @@ export function buildTestApp(
 	providers?: { llmProvider?: LlmProvider; sttProvider?: SttProvider; db?: StitchDb },
 ): FastifyInstance {
 	const db = providers?.db ?? createTestDb();
+	// The lifecycle test reads LOG_DIR from process.env and relies on
+	// buildTestApp honouring it — surface the env var as an override when
+	// the caller hasn't supplied one explicitly.
+	const envLogDir = process.env.LOG_DIR;
+	const resolvedOverrides: Partial<AppConfig> = { ...overrides };
+	if (envLogDir && !resolvedOverrides.LOG_DIR) {
+		resolvedOverrides.LOG_DIR = envLogDir;
+	}
 	return buildApp({
-		config: { ...testConfig, ...overrides },
+		config: { ...testConfig, ...resolvedOverrides },
 		llmProvider: providers?.llmProvider,
 		sttProvider: providers?.sttProvider,
 		db,

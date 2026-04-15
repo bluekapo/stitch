@@ -1,3 +1,4 @@
+import type { Logger } from 'pino';
 import { withSoul } from '../prompts/soul.js';
 import type { LlmProvider } from '../providers/llm.js';
 import { type ClassifiedIntent, ClassifierResponseSchema } from '../schemas/intent.js';
@@ -78,14 +79,21 @@ Few-shot examples (D-16):
    Output: { "intent": "task_create", "confidence": 0.9, "suggested_chunk_id": <current or null>, "suggested_branch_name": <current or null>, "is_essential": false }`;
 
 export class IntentClassifierService {
+	// D-12: `logger` REQUIRED and placed AHEAD of the optional dailyPlanService.
+	// Contract is "logger-first among required deps, optional deps last" so the
+	// fail-closed DI rule isn't silently downgraded by argument order.
 	constructor(
 		private llmProvider: LlmProvider,
 		private dayTreeService: DayTreeService,
 		private taskService: TaskService,
+		private logger: Logger,
 		private dailyPlanService?: DailyPlanService,
 	) {}
 
-	async classify(userInput: string): Promise<ClassifiedIntent> {
+	async classify(userInput: string, reqLogger?: Logger): Promise<ClassifiedIntent> {
+		const log = reqLogger ?? this.logger;
+		// D-06: debug log entry/exit so voice + text flows share trace visibility.
+		log.debug({ userInput }, 'intent.classify:start');
 		// D-12: load all context internally — caller passes only raw text.
 		const tree = this.dayTreeService.getTree();
 		const allTasks = this.taskService.list();
@@ -116,7 +124,7 @@ export class IntentClassifierService {
 
 		// D-11: belt-and-suspenders (response_format + Zod safeParse via provider),
 		// withSoul wrap, temperature 0.3, thinking: false.
-		return this.llmProvider.complete({
+		const result = await this.llmProvider.complete({
 			messages: [
 				{ role: 'system', content: withSoul(CLASSIFIER_SYSTEM_PROMPT) },
 				{ role: 'user', content: userPrompt },
@@ -127,5 +135,10 @@ export class IntentClassifierService {
 			maxTokens: 256,
 			thinking: false,
 		});
+		log.debug(
+			{ intent: result.intent, confidence: result.confidence },
+			'intent.classify:done',
+		);
+		return result;
 	}
 }

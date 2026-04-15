@@ -1,5 +1,6 @@
 import { format } from 'date-fns';
 import { asc, eq, sql } from 'drizzle-orm';
+import type { Logger } from 'pino';
 import type { StitchDb } from '../db/index.js';
 import { chunkTasks, dailyPlans, planChunks, tasks } from '../db/schema.js';
 import { withSoul } from '../prompts/soul.js';
@@ -23,6 +24,9 @@ export class DailyPlanService {
 		// BEFORE the db.transaction opens. See PHASE 1.5 below for the Pitfall 4
 		// regression guard.
 		private predictionService: PredictionService,
+		// D-12 (Phase 12): REQUIRED pino logger. Child-scoped in buildApp so
+		// every DailyPlanService log line carries `service=DailyPlanService`.
+		private logger: Logger,
 	) {}
 
 	private getTodayDateString(): string {
@@ -113,7 +117,12 @@ export class DailyPlanService {
 		return { chunks: chunksWithTasks };
 	}
 
-	async generatePlan(date: string): Promise<DailyPlan & { chunks: PlanChunk[] }> {
+	async generatePlan(
+		date: string,
+		reqLogger?: Logger,
+	): Promise<DailyPlan & { chunks: PlanChunk[] }> {
+		const log = reqLogger ?? this.logger;
+		log.debug({ date }, 'dailyPlan.generate:start');
 		// =====================================================================
 		// PHASE 1: Read context (sync, OUTSIDE transaction)
 		// =====================================================================
@@ -319,20 +328,31 @@ export class DailyPlanService {
 				insertedChunks.push(insertedChunk as PlanChunk);
 			}
 
+			log.debug(
+				{ planId: plan.id, chunks: insertedChunks.length },
+				'dailyPlan.generate:done',
+			);
 			return { ...(plan as DailyPlan), chunks: insertedChunks };
 		});
 	}
 
-	async ensureTodayPlan(): Promise<DailyPlan | undefined> {
+	async ensureTodayPlan(reqLogger?: Logger): Promise<DailyPlan | undefined> {
+		const log = reqLogger ?? this.logger;
 		const today = this.getTodayDateString();
 
 		const existing = this.getTodayPlan();
-		if (existing) return existing;
+		if (existing) {
+			log.debug({ date: today, planId: existing.id }, 'dailyPlan.ensureToday:existing');
+			return existing;
+		}
 
 		const tree = this.dayTreeService.getTree();
-		if (!tree) return undefined;
+		if (!tree) {
+			log.debug({ date: today }, 'dailyPlan.ensureToday:noTree');
+			return undefined;
+		}
 
-		return this.generatePlan(today);
+		return this.generatePlan(today, reqLogger);
 	}
 
 	private buildPlanPrompt(

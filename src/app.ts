@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import type { Bot } from 'grammy';
@@ -9,6 +11,11 @@ import { CheckInService } from './core/check-in-service.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
 import { DayTreeService } from './core/day-tree-service.js';
 import { IntentClassifierService } from './core/intent-classifier.js';
+import {
+	createRootLogger,
+	formatStamp,
+	recoverOrphanedLog,
+} from './core/logger.js';
 import { PredictionService } from './core/prediction-service.js';
 import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
 import { TaskService } from './core/task-service.js';
@@ -31,10 +38,26 @@ export interface AppOptions {
 export function buildApp(options: AppOptions = {}): FastifyInstance {
 	const config = options.config ?? loadConfig();
 
+	// D-01 + Pitfall 2: recoverOrphanedLog MUST run BEFORE createRootLogger
+	// opens stitch.log for writing, or the orphan from the previous session
+	// gets overwritten instead of rotated.
+	const logDir = path.resolve(config.LOG_DIR);
+	recoverOrphanedLog(logDir, 'stitch.log');
+
+	// D-05 + D-09: create the single root pino instance. Fastify will adopt
+	// it as its own `.log` so every request/response line flows through the
+	// pino-pretty file transport.
+	const rootLogger = createRootLogger({
+		level: config.LOG_LEVEL,
+		logDir,
+		logName: 'stitch.log',
+	});
+
+	// Pitfall 1: Fastify 5 renamed `logger` to `loggerInstance` when passing a
+	// pre-built pino instance. Using the old key silently disables the custom
+	// transport and falls back to Fastify's default stdout logger.
 	const app = Fastify({
-		logger: {
-			level: config.LOG_LEVEL,
-		},
+		loggerInstance: rootLogger,
 		pluginTimeout: 120_000,
 	});
 
@@ -54,25 +77,31 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	app.decorate('sttProvider', sttProvider);
 
 	// Task service
-	const taskService = new TaskService(db);
+	// D-10: per-service child logger so every log line is pre-tagged with
+	// `service=TaskService` without the service knowing its own name.
+	// D-12: logger is a REQUIRED arg — no `logger?: Logger` fallback.
+	const taskService = new TaskService(db, rootLogger.child({ service: 'TaskService' }));
 	app.decorate('taskService', taskService);
 
 	// Day tree service
-	const dayTreeService = new DayTreeService(db, llmProvider);
+	const dayTreeService = new DayTreeService(
+		db,
+		llmProvider,
+		rootLogger.child({ service: 'DayTreeService' }),
+	);
 	app.decorate('dayTreeService', dayTreeService);
 
 	// Phase 10 (D-01): PredictionService — the "predict" half of predict-then-plan.
 	// Constructed BEFORE DailyPlanService because DailyPlanService depends on it.
 	// NO dailyPlanService dependency in the other direction (Pitfall 5 cycle guard).
+	// D-09: `rootLogger.child(...)` — no more FastifyBaseLogger cast, pino all
+	// the way down.
 	const predictionService = new PredictionService(
 		db,
 		taskService,
 		dayTreeService,
 		llmProvider,
-		// Fastify's logger is structurally compatible with pino's Logger interface
-		// but TypeScript considers them distinct. Cast is safe — same pattern used
-		// for CheckInService/WakeStateService below.
-		app.log as unknown as import('pino').Logger,
+		rootLogger.child({ service: 'PredictionService' }),
 	);
 	app.decorate('predictionService', predictionService);
 
@@ -84,14 +113,18 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		taskService,
 		llmProvider,
 		predictionService,
+		rootLogger.child({ service: 'DailyPlanService' }),
 	);
 	app.decorate('dailyPlanService', dailyPlanService);
 
 	// Intent classifier service (Phase 08.4)
+	// D-12: logger is REQUIRED and reordered ahead of the optional
+	// dailyPlanService so the contract is "logger-first, optional-last".
 	const intentClassifierService = new IntentClassifierService(
 		llmProvider,
 		dayTreeService,
 		taskService,
+		rootLogger.child({ service: 'IntentClassifierService' }),
 		dailyPlanService,
 	);
 	app.decorate('intentClassifierService', intentClassifierService);
@@ -109,11 +142,9 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		userChatId: config.TELEGRAM_ALLOWED_USER_ID,
 		tickIntervalMs: config.NUDGE_TICK_INTERVAL_MS,
 		cleanupTtlMs: config.CHECKIN_CLEANUP_MS,
-		// Fastify's logger is structurally compatible with pino's Logger interface
-		// but TypeScript considers them distinct (FastifyBaseLogger vs Logger).
-		// Cast is safe: both expose .info/.warn/.error/.debug/.trace with the
-		// same call signatures, which is all CheckInService/WakeStateService use.
-		logger: app.log as unknown as import('pino').Logger,
+		// D-09/D-10: real pino child logger — no cast needed now that the
+		// whole app is wired around `rootLogger`.
+		logger: rootLogger.child({ service: 'CheckInService' }),
 	});
 	app.decorate('checkInService', checkInService);
 
@@ -135,6 +166,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 			sttProvider,
 			intentClassifierService,
 			checkInService, // Phase 9 (D-05.4): handlers fire forceCheckIn('task_action')
+			logger: rootLogger, // Phase 12 D-12 fan-out root for channel-scoped children
 		});
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);
@@ -153,11 +185,8 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		dayTreeService,
 		checkInService,
 		debounceMs: config.WAKE_DEBOUNCE_MS,
-		// Fastify's logger is structurally compatible with pino's Logger interface
-		// but TypeScript considers them distinct (FastifyBaseLogger vs Logger).
-		// Cast is safe: both expose .info/.warn/.error/.debug/.trace with the
-		// same call signatures, which is all CheckInService/WakeStateService use.
-		logger: app.log as unknown as import('pino').Logger,
+		// D-09/D-10: real pino child logger.
+		logger: rootLogger.child({ service: 'WakeStateService' }),
 	});
 	app.decorate('wakeStateService', wakeStateService);
 
@@ -238,7 +267,39 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		} catch (err) {
 			app.log.warn({ err }, 'CheckInService stop failed');
 		}
+
+		// D-01: rename the active stitch.log to stitch-{stamp}.log on clean
+		// close. Pitfall 6: give the pino-pretty transport worker a moment to
+		// flush its buffer before we rename the file out from under it —
+		// otherwise the last few lines can be lost. 100ms matches the RED
+		// test's pre-close flush budget.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		const orphanPath = path.join(logDir, 'stitch.log');
+		if (fs.existsSync(orphanPath)) {
+			const stamp = formatStamp(new Date());
+			let target = path.join(logDir, `stitch-${stamp}.log`);
+			// Pitfall 9: collision-safe `-N` suffix for the case where two
+			// closes land within the same second (stamp has 1s resolution).
+			let counter = 0;
+			while (fs.existsSync(target)) {
+				counter += 1;
+				target = path.join(logDir, `stitch-${stamp}-${counter}.log`);
+			}
+			try {
+				fs.renameSync(orphanPath, target);
+			} catch (err) {
+				// Best-effort — don't let rotation failure abort shutdown.
+				process.stderr.write(
+					`Failed to rotate ${orphanPath} → ${target}: ${(err as Error).message}\n`,
+				);
+			}
+		}
 	});
 
-	return app;
+	// Cast to the default FastifyInstance shape. Fastify's generics narrow when
+	// `loggerInstance` is a pino `Logger` (specific) vs the declared
+	// `FastifyBaseLogger` (structural). The narrower type is a subtype of the
+	// wider one, so the cast is safe — we just sidestep TS refusing to widen.
+	return app as unknown as FastifyInstance;
 }

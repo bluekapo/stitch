@@ -1,3 +1,4 @@
+import type { Logger } from 'pino';
 import type { StitchDb } from '../db/index.js';
 import { dayTrees } from '../db/schema.js';
 import { withSoul } from '../prompts/soul.js';
@@ -17,9 +18,11 @@ Terminology:
 - A BRANCH is a time period. A CHUNK is a group of tasks within a branch. You are editing branches, not chunks.`;
 
 export class DayTreeService {
+	// D-12: `logger` REQUIRED.
 	constructor(
 		private db: StitchDb,
 		private llmProvider: LlmProvider,
+		private logger: Logger,
 	) {}
 
 	getTree(): DayTree | undefined {
@@ -35,7 +38,9 @@ export class DayTreeService {
 		return { id: row.id, tree };
 	}
 
-	async setTree(description: string): Promise<DayTree> {
+	async setTree(description: string, reqLogger?: Logger): Promise<DayTree> {
+		const log = reqLogger ?? this.logger;
+		log.debug({ description }, 'dayTree.setTree:start');
 		const result = await this.llmProvider.complete({
 			messages: [
 				{ role: 'system', content: withSoul(TREE_SET_SYSTEM_PROMPT) },
@@ -51,10 +56,13 @@ export class DayTreeService {
 		this.db.delete(dayTrees).run();
 		this.db.insert(dayTrees).values({ tree: result }).run();
 
+		log.debug({ branches: result.branches.length }, 'dayTree.setTree:done');
 		return result;
 	}
 
-	async editTree(modification: string): Promise<DayTree> {
+	async editTree(modification: string, reqLogger?: Logger): Promise<DayTree> {
+		const log = reqLogger ?? this.logger;
+		log.debug({ modification }, 'dayTree.editTree:start');
 		const current = this.getTree();
 		if (!current) {
 			throw new Error('No day tree set. Use "tree <description>" first.');
@@ -77,6 +85,8 @@ export class DayTreeService {
 		// Upsert: delete all existing trees, insert new one
 		this.db.delete(dayTrees).run();
 		this.db.insert(dayTrees).values({ tree: result }).run();
+
+		log.debug({ branches: result.branches.length }, 'dayTree.editTree:done');
 
 		return result;
 	}
