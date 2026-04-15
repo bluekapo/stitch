@@ -23,6 +23,9 @@ const shutdown = async (signal: string) => {
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+// D-01 Windows: Ctrl+Break on Windows delivers SIGBREAK; also catch it so the
+// rotate-on-exit path fires even when Ctrl+C is intercepted by a shell layer.
+process.on('SIGBREAK' as NodeJS.Signals, () => shutdown('SIGBREAK'));
 
 try {
 	const address = await app.listen({ port: config.PORT, host: '0.0.0.0' });
