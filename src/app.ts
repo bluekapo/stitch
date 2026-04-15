@@ -43,7 +43,13 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	// D-05 + D-09: create the single root pino instance. Fastify will adopt
 	// it as its own `.log` so every request/response line flows through the
 	// pino-pretty file transport.
-	const rootLogger = createRootLogger({
+	//
+	// `rootTransport` is the ThreadStream worker stream. We hold on to it so
+	// the onClose hook below can end it + wait for its 'close' event BEFORE
+	// renaming stitch.log — otherwise `fs.renameSync` fails with EBUSY on
+	// Windows because the worker still owns the file handle (D-01 UAT fix).
+	// Silent-mode callers get `transport: null`.
+	const { logger: rootLogger, transport: rootTransport } = createRootLogger({
 		level: config.LOG_LEVEL,
 		logDir,
 		logName: 'stitch.log',
@@ -268,16 +274,37 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		}
 
 		// D-01: rename the active stitch.log to stitch-{stamp}.log on clean
-		// close. Pitfall 6: give the pino-pretty transport worker a moment to
-		// flush its buffer before we rename the file out from under it —
-		// otherwise the last few lines can be lost. 100ms matches the RED
-		// test's pre-close flush budget.
+		// close.
 		//
-		// Skip the flush window when LOG_LEVEL=silent — createRootLogger
-		// short-circuits the transport in that mode so there's nothing to
-		// flush and no file to rename. Keeps route/integration tests fast.
-		if (config.LOG_LEVEL !== 'silent') {
-			await new Promise((resolve) => setTimeout(resolve, 100));
+		// Windows transport race fix (2026-04-15 UAT): simply waiting 100ms
+		// for the pino-pretty worker to flush is NOT enough. The worker runs
+		// in a Node worker thread (pino.transport → thread-stream) and keeps
+		// the file descriptor open until we explicitly `end()` it and the
+		// worker exits. On Windows, `fs.renameSync` on an open file fails
+		// with EBUSY/EPERM — so the rename was a silent no-op and the orphan
+		// only got rotated on NEXT boot via recoverOrphanedLog.
+		//
+		// Fix: end the transport and await its 'close' event (the worker
+		// thread exits, releasing the fd) BEFORE renaming. 2s safety timeout
+		// keeps shutdown bounded if something goes wrong with the worker.
+		//
+		// Skip entirely in silent mode — createRootLogger returns
+		// `transport: null` in that path so there's no worker to close and
+		// no file to rename. Keeps route/integration tests fast.
+		if (rootTransport) {
+			await new Promise<void>((resolve) => {
+				let settled = false;
+				const done = () => {
+					if (settled) return;
+					settled = true;
+					resolve();
+				};
+				rootTransport.once('close', done);
+				// Safety timeout — don't block shutdown forever if the worker
+				// misbehaves. 2s is generous; normal close is ~tens of ms.
+				setTimeout(done, 2000);
+				rootTransport.end();
+			});
 		}
 
 		const orphanPath = path.join(logDir, 'stitch.log');

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+	createRootLogger,
 	formatStamp,
 	parseLastLineTimestamp,
 	recoverOrphanedLog,
@@ -169,6 +170,50 @@ describe('D-03: recoverOrphanedLog', () => {
 		expect(fs.existsSync(path.join(tmpDir, `stitch-${stamp}.log`))).toBe(true);
 		expect(fs.existsSync(path.join(tmpDir, `stitch-${stamp}-1.log`))).toBe(true);
 	});
+});
+
+describe('D-01 Windows transport race: createRootLogger returns { logger, transport }', () => {
+	// Regression for the 2026-04-15 UAT bug on D-01: the clean-Ctrl+C rename
+	// was a silent no-op on Windows because pino-pretty runs in a worker
+	// thread (thread-stream) and keeps the file handle open. The fix exposes
+	// the transport so the shutdown path can end() it and await 'close'
+	// BEFORE fs.renameSync.
+	//
+	// These tests only verify the handle SHAPE — the end-to-end rename
+	// contract is exercised in test/app/logger-lifecycle.test.ts.
+
+	it('returns { logger, transport: null } in silent mode (no worker spawned)', () => {
+		const handle = createRootLogger({ level: 'silent', logDir: os.tmpdir() });
+		expect(handle.logger).toBeDefined();
+		expect(typeof handle.logger.info).toBe('function');
+		expect(handle.transport).toBeNull();
+	});
+
+	it('returns { logger, transport } with a closable transport at non-silent levels', async () => {
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stitch-handle-'));
+		try {
+			const handle = createRootLogger({ level: 'debug', logDir: tmpDir });
+			expect(handle.logger).toBeDefined();
+			expect(typeof handle.logger.info).toBe('function');
+			expect(handle.transport).not.toBeNull();
+			// Contract the shutdown path relies on: end() exists and 'close'
+			// fires when the worker thread exits.
+			expect(typeof handle.transport?.end).toBe('function');
+			await new Promise<void>((resolve) => {
+				let settled = false;
+				const done = () => {
+					if (settled) return;
+					settled = true;
+					resolve();
+				};
+				handle.transport?.once('close', done);
+				setTimeout(done, 2000);
+				handle.transport?.end();
+			});
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	}, 10_000);
 });
 
 describe('D-07: reqId', () => {

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Writable } from 'node:stream';
 import { customAlphabet } from 'nanoid/non-secure';
 import pino, { type Logger } from 'pino';
 
@@ -107,6 +108,25 @@ export interface CreateRootLoggerOptions {
 }
 
 /**
+ * Handle returned by `createRootLogger`.
+ *
+ * `transport` is the pino-pretty worker-thread stream (a ThreadStream,
+ * typed here as `Writable` via the public Node.js surface). The caller
+ * MUST end it and await its `'close'` event before renaming the
+ * destination file on shutdown — otherwise the worker still owns the
+ * file descriptor and `fs.renameSync` fails with EBUSY/EPERM on Windows
+ * (the rename silently no-ops and the orphan is only rotated on next
+ * boot via `recoverOrphanedLog`).
+ *
+ * `transport` is `null` in silent mode (tests) where no worker is
+ * spawned; callers should skip the close-wait in that case.
+ */
+export interface RootLoggerHandle {
+	logger: Logger;
+	transport: Writable | null;
+}
+
+/**
  * D-05 + D-09: build the root pino logger with a pino-pretty file
  * transport. Callers (src/app.ts) MUST call `recoverOrphanedLog` FIRST
  * so the previous session's orphan is rotated before pino opens the
@@ -119,10 +139,15 @@ export interface CreateRootLoggerOptions {
  * transport entirely — it costs ~hundreds of ms in startup/teardown and
  * would never receive a single line anyway. This keeps Fastify route/wake
  * test suites well under vitest's default 10s beforeEach hook budget.
+ *
+ * Returns a `{ logger, transport }` handle so the shutdown path can end
+ * the transport and wait for its `'close'` event before renaming the
+ * log file — required on Windows where an open worker handle blocks
+ * `fs.renameSync` (D-01 Windows transport race fix).
  */
-export function createRootLogger(options: CreateRootLoggerOptions): Logger {
+export function createRootLogger(options: CreateRootLoggerOptions): RootLoggerHandle {
 	if (options.level === 'silent') {
-		return pino({ level: 'silent' });
+		return { logger: pino({ level: 'silent' }), transport: null };
 	}
 
 	const logName = options.logName ?? 'stitch.log';
@@ -140,5 +165,9 @@ export function createRootLogger(options: CreateRootLoggerOptions): Logger {
 		},
 	});
 
-	return pino({ level: options.level }, transport);
+	const logger = pino({ level: options.level }, transport);
+	// pino.transport returns a ThreadStream (extends EventEmitter with
+	// write/end + emits 'close' when the worker thread exits). The public
+	// Node.js `Writable` surface is the minimal contract we rely on.
+	return { logger, transport: transport as unknown as Writable };
 }
