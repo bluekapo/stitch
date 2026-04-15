@@ -18,15 +18,17 @@ export const CONFIDENCE_THRESHOLD = 0.7;
 // Few-shot examples cross-reference (Pitfall 7 mitigation):
 // Schema fields used in prompt examples MUST match src/schemas/intent.ts:
 //   task_create:      intent, confidence, suggested_chunk_id, suggested_branch_name, is_essential
-//   task_modify:      intent, confidence, task_id, action
+//   task_modify:      intent, confidence, task_id, action ∈ {done, postpone, delete, start_timer, stop_timer}
 //   tree_edit:        intent, confidence, modification
 //   plan_regenerate:  intent, confidence, target_date
-//   task_query/tree_query/plan_view/unknown: intent, confidence, clarification?
+//   task_query:       intent, confidence, scope? (all|current_chunk)
+//   plan_view:        intent, confidence, target_date? (today|tomorrow)
+//   tree_query/unknown: intent, confidence, clarification?
 const CLASSIFIER_SYSTEM_PROMPT = `You classify the user's message into ONE of 8 intents and extract the relevant fields.
 
 Intents:
 - task_create: user wants to create a new task
-- task_modify: user wants to mark a task done or postpone it
+- task_modify: user wants to mark a task done, postpone it, delete it, start its timer, or stop its timer
 - task_query: user wants to see their tasks
 - tree_edit: user wants to modify the day tree (time periods)
 - tree_query: user wants to see the day tree
@@ -48,7 +50,18 @@ For task_create:
 
 For task_modify:
 - task_id: pick from the pending task list by name match. NEVER invent an id.
-- action: "done" for completion, "postpone" for delay.
+- action:
+  * "done" — user says "finished", "done with", "I did X", "completed"
+  * "postpone" — user says "push", "postpone", "delay", "later"
+  * "delete" — user says "delete", "remove", "throw away", "scrap", "cancel"
+  * "start_timer" — user says "start X", "start the X timer", "begin X", "track X"
+  * "stop_timer" — user says "stop X", "stop the X timer", "end X"
+
+For task_query:
+- scope: default omitted (= all pending). Set scope="current_chunk" when the user asks about the current chunk explicitly ("what's in my current chunk", "show me this chunk's tasks").
+
+For plan_view:
+- target_date: "today" is the default (omit). Use "tomorrow" only if the user explicitly says "tomorrow's plan", "plan for tomorrow".
 
 For tree_edit:
 - modification: write a CLEANED phrase, NOT the raw user text. Example: user says "yo move dinner to like 20:00 thx" — return modification: "move dinner to 20:00".
@@ -58,7 +71,8 @@ For plan_regenerate:
 
 Confidence: 0.0-1.0. If confidence < 0.7, set clarification to a JARVIS-voice question (formal but warm, dry wit, anticipatory). Example: "Apologies, Sir. Was that a new task or an edit to the day tree?"
 
-If the user describes more than one action in a single message (Pitfall 2), pick the most clearly stated one and return its intent. Do not attempt to handle multiple actions in one classification.
+D-18 — Single intent only:
+Classify exactly ONE intent. If the user requests multiple actions in one message, pick the most clearly stated one and return only its intent. Compound-intent routing is not supported in this release; do NOT invent new branches, wrap multiple intents in an array, or split the response.
 
 Few-shot examples (D-16):
 1. Input: "add groceries"
@@ -76,7 +90,13 @@ Few-shot examples (D-16):
 7. Input: "show me my day tree"
    Output: { "intent": "tree_query", "confidence": 0.95 }
 8. Input: "add dinner task"
-   Output: { "intent": "task_create", "confidence": 0.9, "suggested_chunk_id": <current or null>, "suggested_branch_name": <current or null>, "is_essential": false }`;
+   Output: { "intent": "task_create", "confidence": 0.9, "suggested_chunk_id": <current or null>, "suggested_branch_name": <current or null>, "is_essential": false }
+9. Input: "delete groceries"
+   Output: { "intent": "task_modify", "confidence": 0.9, "task_id": <id from pending list>, "action": "delete" }
+10. Input: "start the groceries timer"
+    Output: { "intent": "task_modify", "confidence": 0.9, "task_id": <id from pending list>, "action": "start_timer" }
+11. Input: "show me my current chunk tasks"
+    Output: { "intent": "task_query", "confidence": 0.9, "scope": "current_chunk" }`;
 
 export class IntentClassifierService {
 	// D-12: `logger` REQUIRED and placed AHEAD of the optional dailyPlanService.

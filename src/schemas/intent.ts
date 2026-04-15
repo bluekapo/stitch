@@ -90,7 +90,9 @@ const QueryViewBranch = z.object({
 	scope: z
 		.enum(['all', 'current_chunk'])
 		.optional()
-		.describe('task_query only — omit for all pending; "current_chunk" narrows to the active chunk'),
+		.describe(
+			'task_query only — omit for all pending; "current_chunk" narrows to the active chunk',
+		),
 	// D-16 (Phase 12): plan_view-specific optional future-day target. Mirrors the
 	// enum on plan_regenerate so the router can reuse the same knob.
 	target_date: z
