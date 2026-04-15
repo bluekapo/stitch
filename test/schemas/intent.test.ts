@@ -165,3 +165,74 @@ describe('ClassifierResponseSchema -> JSON Schema (Pitfall 1 smoke)', () => {
 		}
 	});
 });
+
+// Phase 12 Plan 01 Task 3 — Nyquist RED fixtures for D-14 / D-16.
+// These tests INTENTIONALLY fail today; 12-03 extends the schema to turn
+// them green. Keep the existing Pitfall 1 fixtures above unchanged.
+
+describe('D-14: task_modify action enum (Phase 12)', () => {
+	it.each(['delete', 'start_timer', 'stop_timer'])('accepts action=%s', (action) => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'task_modify',
+			confidence: 0.9,
+			task_id: 42,
+			action,
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('rejects unknown action', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'task_modify',
+			confidence: 0.9,
+			task_id: 42,
+			action: 'nonsense',
+		});
+		expect(parsed.success).toBe(false);
+	});
+});
+
+describe('D-16: QueryViewBranch scope + target_date (Phase 12)', () => {
+	it("accepts task_query with scope: 'current_chunk'", () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'task_query',
+			confidence: 0.9,
+			scope: 'current_chunk',
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('accepts task_query without scope (optional field)', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'task_query',
+			confidence: 0.9,
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it("accepts plan_view with target_date: 'tomorrow'", () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'plan_view',
+			confidence: 0.9,
+			target_date: 'tomorrow',
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('accepts plan_view without target_date (optional field)', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'plan_view',
+			confidence: 0.9,
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it("rejects plan_view with target_date: 'yesterday' (enum rejection)", () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'plan_view',
+			confidence: 0.9,
+			target_date: 'yesterday',
+		});
+		expect(parsed.success).toBe(false);
+	});
+});
