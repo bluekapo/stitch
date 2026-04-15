@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { Bot } from 'grammy';
 import { buildApp } from './app.js';
 import type { StitchContext } from './channels/telegram/types.js';
@@ -8,6 +10,24 @@ const config = loadConfig();
 const app = buildApp({ config });
 
 const shutdown = async (signal: string) => {
+	// D-01 Windows diagnostic: sync sentinel proves the handler fired even if
+	// the pino transport worker dies before flush or the parent force-kills us.
+	// `app.log.info` below goes through an async worker thread — on Windows
+	// under `node --watch`, the parent calls `child.kill()` which is always
+	// SIGKILL-equivalent regardless of the signal arg, so async output is
+	// frequently lost mid-write.
+	try {
+		const sentinelPath = path.join(path.resolve(config.LOG_DIR), 'shutdown-sentinel.txt');
+		fs.writeFileSync(
+			sentinelPath,
+			`${new Date().toISOString()} ${signal} pid=${process.pid}\n`,
+			{ flag: 'a' },
+		);
+		process.stderr.write(`[shutdown] ${signal} fired (pid=${process.pid})\n`);
+	} catch {
+		// best-effort — never block shutdown on sentinel write
+	}
+
 	app.log.info(`Received ${signal}, shutting down...`);
 	const bot = (app as unknown as { bot?: Bot<StitchContext> }).bot;
 	if (bot) {
