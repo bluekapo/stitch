@@ -17,6 +17,10 @@ export function scheduleCleanup(
 	userMsgId: number,
 	replyMsgId: number | undefined,
 	db?: StitchDb,
+	// Phase 12 D-20: optional logger for structured diagnostics on DB/API
+	// failures. When absent we silently swallow failures as before — no
+	// stdout/stderr write is introduced.
+	logger?: Logger,
 ): void {
 	const deleteAfter = new Date(Date.now() + CLEANUP_DELAY_MS).toISOString();
 
@@ -35,30 +39,34 @@ export function scheduleCleanup(
 				.returning({ id: pendingCleanups.id })
 				.get();
 			rowId = result.id;
-		} catch {
+		} catch (err) {
 			// DB write failure should not block cleanup scheduling
+			logger?.warn?.({ err, chatId, userMsgId }, 'scheduleCleanup: persist failed');
 		}
 	}
 
 	setTimeout(async () => {
 		try {
 			await ctx.api.deleteMessage(chatId, userMsgId);
-		} catch {
+		} catch (err) {
 			// Message may already be deleted
+			logger?.warn?.({ err, chatId, userMsgId }, 'scheduleCleanup: delete user msg failed');
 		}
 		if (replyMsgId !== undefined) {
 			try {
 				await ctx.api.deleteMessage(chatId, replyMsgId);
-			} catch {
+			} catch (err) {
 				// Reply may already be deleted
+				logger?.warn?.({ err, chatId, replyMsgId }, 'scheduleCleanup: delete reply failed');
 			}
 		}
 		// Remove DB row after successful cleanup
 		if (db && rowId !== undefined) {
 			try {
 				db.delete(pendingCleanups).where(eq(pendingCleanups.id, rowId)).run();
-			} catch {
+			} catch (err) {
 				// Best-effort removal
+				logger?.warn?.({ err, rowId }, 'scheduleCleanup: row delete failed');
 			}
 		}
 	}, CLEANUP_DELAY_MS);
@@ -141,26 +149,36 @@ export function schedulePerMessageCleanup(
 export async function flushPendingCleanups(
 	db: StitchDb,
 	botApi: { deleteMessage: (chatId: number, messageId: number) => Promise<unknown> },
+	logger?: Logger,
 ): Promise<number> {
 	const rows = db.select().from(pendingCleanups).all();
 
 	for (const row of rows) {
 		try {
 			await botApi.deleteMessage(row.chatId, row.userMsgId);
-		} catch {
+		} catch (err) {
 			// Message may already be deleted or chat inaccessible
+			logger?.warn?.(
+				{ err, chatId: row.chatId, userMsgId: row.userMsgId },
+				'flushPendingCleanups: delete user msg failed',
+			);
 		}
 		if (row.replyMsgId !== null) {
 			try {
 				await botApi.deleteMessage(row.chatId, row.replyMsgId);
-			} catch {
+			} catch (err) {
 				// Reply may already be deleted
+				logger?.warn?.(
+					{ err, chatId: row.chatId, replyMsgId: row.replyMsgId },
+					'flushPendingCleanups: delete reply failed',
+				);
 			}
 		}
 		try {
 			db.delete(pendingCleanups).where(eq(pendingCleanups.id, row.id)).run();
-		} catch {
+		} catch (err) {
 			// Best-effort removal
+			logger?.warn?.({ err, rowId: row.id }, 'flushPendingCleanups: row delete failed');
 		}
 	}
 

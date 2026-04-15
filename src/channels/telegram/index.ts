@@ -5,6 +5,7 @@ import type { CheckInService } from '../../core/check-in-service.js';
 import type { DailyPlanService } from '../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../core/day-tree-service.js';
 import type { IntentClassifierService } from '../../core/intent-classifier.js';
+import { reqId } from '../../core/logger.js';
 import { TaskParserService } from '../../core/task-parser.js';
 import type { TaskService } from '../../core/task-service.js';
 import type { StitchDb } from '../../db/index.js';
@@ -60,6 +61,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 	const bot = createBot({
 		token: config.TELEGRAM_BOT_TOKEN,
 		allowedUserId: config.TELEGRAM_ALLOWED_USER_ID,
+		logger, // Phase 12 D-20: structured logging for bot.catch (stdout sink gone)
 	});
 
 	const hub = new HubManager(bot.api);
@@ -70,6 +72,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		dayTreeService,
 		checkInService,
 		db, // Phase 10 D-18: prediction lookup for completion diff
+		logger, // Phase 12 D-11: threaded to tasks-menu for hub-button req_id (Pitfall 8)
 	);
 
 	// /start command: send or refresh hub
@@ -95,6 +98,8 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 
 	// Voice handler: transcribe → routeTextInput → cleanup.
 	// Phase 08.4 Pitfall 5: registerVoiceHandler now takes an options object.
+	// Phase 12 D-11: logger passed so the voice entry point synthesizes its
+	// own req_id + source tag per Pitfall 8.
 	if (sttProvider) {
 		registerVoiceHandler({
 			bot,
@@ -107,27 +112,45 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 			dailyPlanService,
 			intentClassifierService,
 			checkInService, // Phase 9 D-05.4
+			logger,
 		});
 	}
 
-	// Unified text handler: routeTextInput handles all commands + classifier dispatch
+	// Unified text handler: routeTextInput handles all commands + classifier dispatch.
+	// Phase 12 (D-07, D-11): synthesize per-interaction req_id so the text
+	// entry log, the classifier log, and the mutating service log all share
+	// one correlation id (Pitfall 8 — voice/text/hub-button parity).
 	bot.on('message:text', async (ctx) => {
 		const text = ctx.message.text;
 		if (text.startsWith('/')) return; // Let command handlers process
+		const reqLogger = logger.child({
+			req_id: reqId(),
+			source: 'telegram_text',
+			userId: ctx.from?.id,
+		});
 		const chatId = ctx.chat.id;
 		const userMsgId = ctx.message.message_id;
-		const result = await routeTextInput(text, {
-			taskService,
-			parser,
-			dayTreeService,
-			dailyPlanService,
-			intentClassifierService,
-			checkInService, // Phase 9 D-05.4: forced check-in on task mutations
-			db, // Phase 10 D-18: prediction lookup for completion diff
-		});
-		if (result.reply) {
-			const reply = await ctx.reply(result.reply, { parse_mode: 'HTML' });
-			scheduleCleanup(ctx, chatId, userMsgId, reply.message_id, db);
+		try {
+			const result = await routeTextInput(
+				text,
+				{
+					taskService,
+					parser,
+					dayTreeService,
+					dailyPlanService,
+					intentClassifierService,
+					checkInService, // Phase 9 D-05.4: forced check-in on task mutations
+					db, // Phase 10 D-18: prediction lookup for completion diff
+					logger,
+				},
+				reqLogger,
+			);
+			if (result.reply) {
+				const reply = await ctx.reply(result.reply, { parse_mode: 'HTML' });
+				scheduleCleanup(ctx, chatId, userMsgId, reply.message_id, db, logger);
+			}
+		} catch (err) {
+			reqLogger.error({ err: (err as Error).message }, 'text-handler failed');
 		}
 	});
 

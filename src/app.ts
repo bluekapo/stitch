@@ -162,7 +162,10 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 			sttProvider,
 			intentClassifierService,
 			checkInService, // Phase 9 (D-05.4): handlers fire forceCheckIn('task_action')
-			logger: rootLogger, // Phase 12 D-12 fan-out root for channel-scoped children
+			// Phase 12 D-12/D-11: tagged child logger so every downstream child
+			// carries `service=telegram` in addition to the per-interaction
+			// req_id synthesized at text/voice/hub-button entries.
+			logger: rootLogger.child({ service: 'telegram' }),
 		});
 		app.decorate('bot', bot);
 		app.decorate('hub', hub);

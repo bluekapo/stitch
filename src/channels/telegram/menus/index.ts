@@ -1,5 +1,6 @@
 import type { Menu } from '@grammyjs/menu';
 import type { Bot } from 'grammy';
+import type { Logger } from 'pino';
 import type { CheckInService } from '../../../core/check-in-service.js';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
 import type { DayTreeService } from '../../../core/day-tree-service.js';
@@ -24,6 +25,7 @@ export function registerMenus(
 	dayTreeService?: DayTreeService,
 	checkInService?: CheckInService, // Phase 9 D-05.4 (Blocker 4)
 	db?: StitchDb, // Phase 10 D-18: prediction lookup for completion diff
+	logger?: Logger, // Phase 12 D-11: threaded to tasks-menu for hub-button req_id (Pitfall 8)
 ): RegisteredMenus {
 	const hubMenu = createHubMenu(taskService, dailyPlanService);
 	const dayPlanMenu = createDayPlanMenu(dayTreeService, dailyPlanService);
@@ -32,6 +34,7 @@ export function registerMenus(
 		dailyPlanService,
 		checkInService,
 		db,
+		logger,
 	);
 
 	// Register top-level submenus on parent before bot.use (Pitfall 6).

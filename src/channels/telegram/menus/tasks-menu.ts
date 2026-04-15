@@ -1,6 +1,8 @@
 import { Menu } from '@grammyjs/menu';
+import pino, { type Logger } from 'pino';
 import type { CheckInService } from '../../../core/check-in-service.js';
 import type { DailyPlanService } from '../../../core/daily-plan-service.js';
+import { reqId } from '../../../core/logger.js';
 import type { TaskService } from '../../../core/task-service.js';
 import type { StitchDb } from '../../../db/index.js';
 import type { TaskListItem } from '../../../types/task.js';
@@ -15,6 +17,11 @@ import {
 	renderTasksView,
 } from '../views.js';
 import { safeEditMessageText } from './helpers.js';
+
+// Phase 12 (D-11): silent fallback so menu factories never crash on a missing
+// logger in legacy test wiring. Production wiring in src/channels/telegram/index.ts
+// always passes a real tagged channel logger.
+const silentLogger: Logger = pino({ level: 'silent' });
 
 const STATUS_ORDER: Record<string, number> = {
 	active: 0,
@@ -61,6 +68,7 @@ function buildTaskDetailMenu(
 	renderParentText: () => string,
 	checkInService?: CheckInService, // Phase 9 D-05.4 (Blocker 4)
 	db?: StitchDb, // Phase 10 D-18: prediction lookup for completion diff
+	logger: Logger = silentLogger, // Phase 12 D-11: reqLogger source (Pitfall 8 — hub button req_id)
 ): Menu<StitchContext> {
 	return new Menu<StitchContext>(menuId).dynamic((ctx, range) => {
 		const taskId = ctx.match;
@@ -94,8 +102,17 @@ function buildTaskDetailMenu(
 		if (task.timerStartedAt) {
 			range
 				.text({ text: 'Stop Timer', payload: String(task.id) }, async (ctx) => {
+					// Pitfall 8: synthesize req_id at the hub-button edge so the
+					// mutating service call carries a correlation id matching the
+					// text/voice entry points.
+					const reqLogger = logger.child({
+						req_id: reqId(),
+						source: 'hub_button',
+						button: 'stop_timer',
+						userId: ctx.from?.id,
+					});
 					try {
-						taskService.stopTimer(task.id);
+						taskService.stopTimer(task.id, reqLogger);
 						const detail = taskService.getTaskDetail(task.id);
 						if (detail) {
 							await safeEditMessageText(ctx, renderTaskDetailView(detail));
@@ -118,8 +135,14 @@ function buildTaskDetailMenu(
 		if (task.status === 'pending' || task.status === 'active') {
 			range
 				.text({ text: 'Start Timer', payload: String(task.id) }, async (ctx) => {
+					const reqLogger = logger.child({
+						req_id: reqId(),
+						source: 'hub_button',
+						button: 'start_timer',
+						userId: ctx.from?.id,
+					});
 					try {
-						taskService.startTimer(task.id);
+						taskService.startTimer(task.id, reqLogger);
 						const detail = taskService.getTaskDetail(task.id);
 						if (detail) {
 							await safeEditMessageText(ctx, renderTaskDetailView(detail));
@@ -135,8 +158,14 @@ function buildTaskDetailMenu(
 		if (!task.isEssential && task.status === 'pending') {
 			range
 				.text({ text: 'Postpone', payload: String(task.id) }, async (ctx) => {
+					const reqLogger = logger.child({
+						req_id: reqId(),
+						source: 'hub_button',
+						button: 'postpone',
+						userId: ctx.from?.id,
+					});
 					try {
-						taskService.postpone(task.id);
+						taskService.postpone(task.id, reqLogger);
 						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
 						const detail = taskService.getTaskDetail(task.id);
 						if (detail) {
@@ -147,14 +176,20 @@ function buildTaskDetailMenu(
 					}
 				})
 				.text({ text: 'Complete', payload: String(task.id) }, async (ctx) => {
+					const reqLogger = logger.child({
+						req_id: reqId(),
+						source: 'hub_button',
+						button: 'complete',
+						userId: ctx.from?.id,
+					});
 					try {
 						const hadTimer = !!task.timerStartedAt;
 						const pred = readPredictionFromDb(db, task.id);
 						let actualSeconds = 0;
 						if (hadTimer) {
-							actualSeconds = taskService.stopTimer(task.id);
+							actualSeconds = taskService.stopTimer(task.id, reqLogger);
 						}
-						taskService.update(task.id, { status: 'completed' });
+						taskService.update(task.id, { status: 'completed' }, reqLogger);
 						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
 
 						if (hadTimer) {
@@ -181,14 +216,20 @@ function buildTaskDetailMenu(
 		if (task.isEssential) {
 			range
 				.text({ text: 'Complete', payload: String(task.id) }, async (ctx) => {
+					const reqLogger = logger.child({
+						req_id: reqId(),
+						source: 'hub_button',
+						button: 'complete_essential',
+						userId: ctx.from?.id,
+					});
 					try {
 						const hadTimer = !!task.timerStartedAt;
 						const pred = readPredictionFromDb(db, task.id);
 						let actualSeconds = 0;
 						if (hadTimer) {
-							actualSeconds = taskService.stopTimer(task.id);
+							actualSeconds = taskService.stopTimer(task.id, reqLogger);
 						}
-						taskService.update(task.id, { status: 'completed' });
+						taskService.update(task.id, { status: 'completed' }, reqLogger);
 						checkInService?.forceCheckIn('task_action').catch(() => {}); // Phase 9 D-05.4 (Blocker 4)
 
 						if (hadTimer) {
@@ -215,8 +256,14 @@ function buildTaskDetailMenu(
 		if (!task.isEssential) {
 			range
 				.text({ text: 'Delete', payload: String(task.id) }, async (ctx) => {
+					const reqLogger = logger.child({
+						req_id: reqId(),
+						source: 'hub_button',
+						button: 'delete',
+						userId: ctx.from?.id,
+					});
 					try {
-						taskService.delete(task.id);
+						taskService.delete(task.id, reqLogger);
 						ctx.menu.back();
 						await safeEditMessageText(ctx, renderParentText());
 					} catch (err) {
@@ -267,6 +314,7 @@ export function createTasksMenu(
 	dailyPlanService?: DailyPlanService,
 	checkInService?: CheckInService, // Phase 9 D-05.4 (Blocker 4)
 	db?: StitchDb, // Phase 10 D-18: prediction lookup for completion diff
+	logger: Logger = silentLogger, // Phase 12 D-11: reqLogger source for Pitfall 8
 ): {
 	tasksMenu: Menu<StitchContext>;
 	taskDetailMenu: Menu<StitchContext>;
@@ -284,6 +332,7 @@ export function createTasksMenu(
 			),
 		checkInService,
 		db,
+		logger,
 	);
 
 	const taskDetailFromAll = buildTaskDetailMenu(
@@ -292,6 +341,7 @@ export function createTasksMenu(
 		() => renderTasksView(taskService.list() as TaskListItem[]),
 		checkInService,
 		db,
+		logger,
 	);
 
 	// Main scoped tasks menu (Screen 3).
