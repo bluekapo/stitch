@@ -8,6 +8,7 @@ import {
 	DayTreeLlmSchema,
 } from '../../src/schemas/day-tree.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 const SAMPLE_TREE = {
 	branches: [
@@ -154,7 +155,7 @@ describe('DayTreeService', () => {
 	beforeEach(() => {
 		db = createTestDb();
 		llm = new MockLlmProvider();
-		service = new DayTreeService(db, llm);
+		service = new DayTreeService(db, llm, createTestLogger());
 	});
 
 	it('getTree returns undefined when no tree exists', () => {

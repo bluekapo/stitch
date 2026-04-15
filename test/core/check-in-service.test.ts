@@ -9,6 +9,7 @@ import { TaskService } from '../../src/core/task-service.js';
 import { checkIns, dailyPlans, planChunks, taskDurations, tasks } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 const TODAY = format(new Date(), 'yyyy-MM-dd');
 
@@ -32,18 +33,25 @@ function makeService(
 ) {
 	const db = createTestDb();
 	const llm = new MockLlmProvider();
-	const dayTreeService = new DayTreeService(db, llm);
-	const taskService = new TaskService(db);
+	const dayTreeService = new DayTreeService(db, llm, createTestLogger());
+	const taskService = new TaskService(db, createTestLogger());
 	// NOTE: DailyPlanService remains positional (existing pattern in src/core/daily-plan-service.ts:13-19).
 	// New Phase 9 services (CheckInService, WakeStateService) use the options-object Pitfall 5 pattern.
 	// Do NOT migrate DailyPlanService in this phase — that is scope creep.
-	const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
+	const predictionService = new PredictionService(
+		db,
+		taskService,
+		dayTreeService,
+		llm,
+		createTestLogger(),
+	);
 	const dailyPlanService = new DailyPlanService(
 		db,
 		dayTreeService,
 		taskService,
 		llm,
 		predictionService,
+		createTestLogger(),
 	);
 	const bot = makeMockBot();
 	const service = new CheckInService({
@@ -57,6 +65,7 @@ function makeService(
 		cleanupTtlMs: overrides.cleanupTtlMs ?? 900_000,
 		tickIntervalMs: overrides.tickIntervalMs ?? 30_000,
 		now: overrides.now,
+		logger: createTestLogger(),
 	});
 	return { service, db, llm, bot };
 }

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Bot } from 'grammy';
@@ -10,6 +13,10 @@ import { checkIns, dailyPlans, dayTrees } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { MockSttProvider } from '../../src/providers/mock-stt.js';
 import { createTestDb } from '../helpers/db.js';
+
+// Phase 12 D-09: buildApp now requires LOG_DIR. Use a per-process tmpdir so
+// integration tests never pollute the repo's ./data/logs directory.
+const testLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stitch-integration-logs-'));
 
 /**
  * Phase 9 wake-to-checkin end-to-end integration tests.
@@ -112,6 +119,7 @@ async function buildHarness(): Promise<IntegrationHarness> {
 		config: {
 			PORT: 0,
 			LOG_LEVEL: 'silent',
+			LOG_DIR: testLogDir,
 			LLAMA_SERVER_URL: 'http://localhost:8080',
 			LLAMA_MODEL_NAME: 'test-model',
 			LLM_PROVIDER: 'mock',

@@ -51,31 +51,27 @@ describe('D-01 + D-05: logger lifecycle (Nyquist RED — turns green in 12-02)',
 	// thread — startup + teardown each cost a few hundred ms, and vitest's
 	// default 5s leaves no headroom once you add the 100ms flush window + the
 	// 100ms Pitfall 6 wait inside app.close()'s onClose hook.
-	it(
-		'renames stitch.log to stitch-{stamp}.log on clean close and writes "hello" through the transport',
-		async () => {
-			const app = buildTestApp({ LOG_LEVEL: 'debug' });
+	it('renames stitch.log to stitch-{stamp}.log on clean close and writes "hello" through the transport', async () => {
+		const app = buildTestApp({ LOG_LEVEL: 'debug' });
 
-			app.log.info({ msg: 'hello' }, 'hello');
+		app.log.info({ msg: 'hello' }, 'hello');
 
-			// Give pino-pretty worker a moment to flush the line to disk.
-			await new Promise((r) => setTimeout(r, 100));
+		// Give pino-pretty worker a moment to flush the line to disk.
+		await new Promise((r) => setTimeout(r, 100));
 
-			await app.close();
+		await app.close();
 
-			// D-01 assertion: no active stitch.log left behind.
-			expect(fs.existsSync(path.join(tmpDir, 'stitch.log'))).toBe(false);
+		// D-01 assertion: no active stitch.log left behind.
+		expect(fs.existsSync(path.join(tmpDir, 'stitch.log'))).toBe(false);
 
-			// D-01 assertion: exactly one rotated file matching the D-02 stamp shape.
-			const rotated = fs
-				.readdirSync(tmpDir)
-				.filter((name) => /^stitch-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d+)?\.log$/.test(name));
-			expect(rotated.length).toBe(1);
+		// D-01 assertion: exactly one rotated file matching the D-02 stamp shape.
+		const rotated = fs
+			.readdirSync(tmpDir)
+			.filter((name) => /^stitch-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d+)?\.log$/.test(name));
+		expect(rotated.length).toBe(1);
 
-			// D-05 assertion: pretty-printed content actually reached the file.
-			const content = fs.readFileSync(path.join(tmpDir, rotated[0]), 'utf8');
-			expect(content).toContain('hello');
-		},
-		15_000,
-	);
+		// D-05 assertion: pretty-printed content actually reached the file.
+		const content = fs.readFileSync(path.join(tmpDir, rotated[0]), 'utf8');
+		expect(content).toContain('hello');
+	}, 15_000);
 });

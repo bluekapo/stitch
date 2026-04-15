@@ -38,9 +38,9 @@ describe('loadConfig', () => {
 			expect(config.PORT).toBe(3000);
 		});
 
-		it('returns LOG_LEVEL=info when not set', () => {
+		it('returns LOG_LEVEL=debug when not set (Phase 12 D-20)', () => {
 			const config = loadConfig();
-			expect(config.LOG_LEVEL).toBe('info');
+			expect(config.LOG_LEVEL).toBe('debug');
 		});
 
 		it('returns LLAMA_SERVER_URL=http://localhost:8080 when not set', () => {

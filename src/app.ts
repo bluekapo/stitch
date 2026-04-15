@@ -11,11 +11,7 @@ import { CheckInService } from './core/check-in-service.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
 import { DayTreeService } from './core/day-tree-service.js';
 import { IntentClassifierService } from './core/intent-classifier.js';
-import {
-	createRootLogger,
-	formatStamp,
-	recoverOrphanedLog,
-} from './core/logger.js';
+import { createRootLogger, formatStamp, recoverOrphanedLog } from './core/logger.js';
 import { PredictionService } from './core/prediction-service.js';
 import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
 import { TaskService } from './core/task-service.js';
@@ -273,7 +269,13 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		// flush its buffer before we rename the file out from under it —
 		// otherwise the last few lines can be lost. 100ms matches the RED
 		// test's pre-close flush budget.
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		//
+		// Skip the flush window when LOG_LEVEL=silent — createRootLogger
+		// short-circuits the transport in that mode so there's nothing to
+		// flush and no file to rename. Keeps route/integration tests fast.
+		if (config.LOG_LEVEL !== 'silent') {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
 
 		const orphanPath = path.join(logDir, 'stitch.log');
 		if (fs.existsSync(orphanPath)) {

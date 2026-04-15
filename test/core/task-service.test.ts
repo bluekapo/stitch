@@ -6,6 +6,7 @@ import type { StitchDb } from '../../src/db/index.js';
 import { chunkTasks, dailyPlans, planChunks, taskDurations, tasks } from '../../src/db/schema.js';
 import { createTaskSchema } from '../../src/types/task.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 describe('TaskService', () => {
 	let db: StitchDb;
@@ -13,7 +14,7 @@ describe('TaskService', () => {
 
 	beforeEach(() => {
 		db = createTestDb();
-		service = new TaskService(db);
+		service = new TaskService(db, createTestLogger());
 	});
 
 	describe('create', () => {

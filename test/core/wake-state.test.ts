@@ -8,6 +8,7 @@ import type { StitchDb } from '../../src/db/index.js';
 import { dailyPlans } from '../../src/db/schema.js';
 import type { DayTree } from '../../src/types/day-tree.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 /**
  * WakeStateService unit tests.
@@ -70,6 +71,7 @@ function buildSut(opts: { db: StitchDb; now: () => Date; tree?: DayTree }): {
 		checkInService,
 		debounceMs: DEBOUNCE_MS,
 		now: opts.now,
+		logger: createTestLogger(),
 	});
 
 	return { service, mocks: { ensureTodayPlan, forceCheckIn, getTree } };

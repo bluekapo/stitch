@@ -135,10 +135,7 @@ export class IntentClassifierService {
 			maxTokens: 256,
 			thinking: false,
 		});
-		log.debug(
-			{ intent: result.intent, confidence: result.confidence },
-			'intent.classify:done',
-		);
+		log.debug({ intent: result.intent, confidence: result.confidence }, 'intent.classify:done');
 		return result;
 	}
 }

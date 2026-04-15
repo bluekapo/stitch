@@ -8,6 +8,7 @@ import { taskDurations } from '../../src/db/schema.js';
 import type { ChatMessage, LlmCompletionOptions, LlmProvider } from '../../src/providers/llm.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 /**
  * Recording mock that captures the messages and call count for the
@@ -72,9 +73,9 @@ describe('PredictionService', () => {
 		db = createTestDb();
 		baselineLlm = new MockLlmProvider();
 		llm = new RecordingPredictionLlm();
-		taskService = new TaskService(db);
-		dayTreeService = new DayTreeService(db, baselineLlm);
-		service = new PredictionService(db, taskService, dayTreeService, llm);
+		taskService = new TaskService(db, createTestLogger());
+		dayTreeService = new DayTreeService(db, baselineLlm, createTestLogger());
+		service = new PredictionService(db, taskService, dayTreeService, llm, createTestLogger());
 	});
 
 	afterEach(() => {

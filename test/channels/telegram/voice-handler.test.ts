@@ -9,6 +9,7 @@ import { TaskService } from '../../../src/core/task-service.js';
 import { MockLlmProvider } from '../../../src/providers/mock.js';
 import type { SttProvider } from '../../../src/providers/stt.js';
 import { createTestDb } from '../../helpers/db.js';
+import { createTestLogger } from '../../helpers/logger.js';
 import { createTestBot, fakeVoiceMessageUpdate } from '../../helpers/telegram.js';
 
 function createMockStt(transcribeResult: string): SttProvider {
@@ -45,7 +46,7 @@ describe('voice-handler', () => {
 
 	beforeEach(async () => {
 		const db = createTestDb();
-		taskService = new TaskService(db);
+		taskService = new TaskService(db, createTestLogger());
 
 		const result = createTestBot();
 		bot = result.bot;
@@ -71,8 +72,13 @@ describe('voice-handler', () => {
 	// Test 1: Voice message triggers transcription and creates task via classifier dispatch
 	it('voice message triggers transcription and creates task via classifier dispatch', async () => {
 		const llm = new MockLlmProvider();
-		const dayTreeService = new DayTreeService(createTestDb(), llm);
-		const intentClassifierService = new IntentClassifierService(llm, dayTreeService, taskService);
+		const dayTreeService = new DayTreeService(createTestDb(), llm, createTestLogger());
+		const intentClassifierService = new IntentClassifierService(
+			llm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+		);
 		llm.setFixture('intent_classifier', {
 			intent: 'task_create',
 			confidence: 0.95,
@@ -101,8 +107,13 @@ describe('voice-handler', () => {
 		taskService.create({ name: 'Existing Task' });
 
 		const llm = new MockLlmProvider();
-		const dayTreeService = new DayTreeService(createTestDb(), llm);
-		const intentClassifierService = new IntentClassifierService(llm, dayTreeService, taskService);
+		const dayTreeService = new DayTreeService(createTestDb(), llm, createTestLogger());
+		const intentClassifierService = new IntentClassifierService(
+			llm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+		);
 		llm.setFixture('intent_classifier', {
 			intent: 'task_query',
 			confidence: 0.95,
@@ -126,8 +137,13 @@ describe('voice-handler', () => {
 	// Test 3: Voice NL text routes through classifier task_create
 	it('voice message with NL text routes through classifier task_create', async () => {
 		const llm = new MockLlmProvider();
-		const dayTreeService = new DayTreeService(createTestDb(), llm);
-		const intentClassifierService = new IntentClassifierService(llm, dayTreeService, taskService);
+		const dayTreeService = new DayTreeService(createTestDb(), llm, createTestLogger());
+		const intentClassifierService = new IntentClassifierService(
+			llm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+		);
 		llm.setFixture('intent_classifier', {
 			intent: 'task_create',
 			confidence: 0.9,
@@ -187,8 +203,13 @@ describe('voice-handler', () => {
 	it('voice message and reply scheduled for cleanup', async () => {
 		vi.useFakeTimers();
 		const llm = new MockLlmProvider();
-		const dayTreeService = new DayTreeService(createTestDb(), llm);
-		const intentClassifierService = new IntentClassifierService(llm, dayTreeService, taskService);
+		const dayTreeService = new DayTreeService(createTestDb(), llm, createTestLogger());
+		const intentClassifierService = new IntentClassifierService(
+			llm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+		);
 		llm.setFixture('intent_classifier', {
 			intent: 'task_create',
 			confidence: 0.9,

@@ -17,11 +17,12 @@ import {
 } from '../../../src/channels/telegram/views.js';
 import { TaskService } from '../../../src/core/task-service.js';
 import { createTestDb } from '../../helpers/db.js';
+import { createTestLogger } from '../../helpers/logger.js';
 import { createTestBot } from '../../helpers/telegram.js';
 
 function makeTaskService() {
 	const db = createTestDb();
-	return new TaskService(db);
+	return new TaskService(db, createTestLogger());
 }
 
 /** Minimal context object accepted by @grammyjs/menu render() for static menus */

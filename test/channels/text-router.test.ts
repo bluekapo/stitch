@@ -15,6 +15,7 @@ import type { StitchDb } from '../../src/db/index.js';
 import { dayTrees, tasks } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 const SAMPLE_TREE = {
 	branches: [
@@ -50,9 +51,9 @@ describe('text-router tree commands', () => {
 	beforeEach(() => {
 		const db = createTestDb();
 		llm = new MockLlmProvider();
-		const taskService = new TaskService(db);
-		const parser = new TaskParserService(llm);
-		const dayTreeService = new DayTreeService(db, llm);
+		const taskService = new TaskService(db, createTestLogger());
+		const parser = new TaskParserService(llm, createTestLogger());
+		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
 
 		deps = { taskService, parser, dayTreeService };
 	});
@@ -66,7 +67,7 @@ describe('text-router tree commands', () => {
 		// Insert tree directly into DB
 		const db = createTestDb();
 		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
-		const dayTreeService = new DayTreeService(db, llm);
+		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
 		const localDeps: TextRouterDeps = { ...deps, dayTreeService };
 
 		const result = await routeTextInput('tree show', localDeps);
@@ -90,7 +91,7 @@ describe('text-router tree commands', () => {
 		// First insert a tree so editTree can find it
 		const db = createTestDb();
 		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
-		const dayTreeService = new DayTreeService(db, llm);
+		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
 		const localDeps: TextRouterDeps = { ...deps, dayTreeService };
 		llm.setFixture('day_tree', SAMPLE_TREE);
 
@@ -102,7 +103,7 @@ describe('text-router tree commands', () => {
 	it('tree edit is matched before tree catch-all', async () => {
 		const db = createTestDb();
 		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
-		const dayTreeService = new DayTreeService(db, llm);
+		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
 		const localDeps: TextRouterDeps = { ...deps, dayTreeService };
 		llm.setFixture('day_tree', SAMPLE_TREE);
 
@@ -193,13 +194,13 @@ describe('text-router classifier dispatch (Phase 08.4)', () => {
 	beforeEach(() => {
 		db = createTestDb();
 		llm = new MockLlmProvider();
-		taskService = new TaskService(db);
-		parser = new TaskParserService(llm);
-		dayTreeService = new DayTreeService(db, llm);
+		taskService = new TaskService(db, createTestLogger());
+		parser = new TaskParserService(llm, createTestLogger());
+		dayTreeService = new DayTreeService(db, llm, createTestLogger());
 	});
 
 	function mkClassifier(): IntentClassifierService {
-		return new IntentClassifierService(llm, dayTreeService, taskService);
+		return new IntentClassifierService(llm, dayTreeService, taskService, createTestLogger());
 	}
 
 	it('task_create: attaches task to chunk from classifier suggestion', async () => {

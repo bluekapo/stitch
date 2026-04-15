@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { TaskParserService } from '../../src/core/task-parser.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 describe('TaskParserService', () => {
 	let llm: MockLlmProvider;
@@ -8,7 +9,7 @@ describe('TaskParserService', () => {
 
 	beforeEach(() => {
 		llm = new MockLlmProvider();
-		parser = new TaskParserService(llm);
+		parser = new TaskParserService(llm, createTestLogger());
 	});
 
 	it('parses "buy groceries tomorrow by 5pm" as one-time with deadline', async () => {

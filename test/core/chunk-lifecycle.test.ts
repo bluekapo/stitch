@@ -9,21 +9,29 @@ import { TaskService } from '../../src/core/task-service.js';
 import { dailyPlans, planChunks, tasks } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 const TODAY = format(new Date(), 'yyyy-MM-dd');
 
 function makeService(now?: () => Date) {
 	const db = createTestDb();
 	const llm = new MockLlmProvider();
-	const dayTreeService = new DayTreeService(db, llm);
-	const taskService = new TaskService(db);
-	const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
+	const dayTreeService = new DayTreeService(db, llm, createTestLogger());
+	const taskService = new TaskService(db, createTestLogger());
+	const predictionService = new PredictionService(
+		db,
+		taskService,
+		dayTreeService,
+		llm,
+		createTestLogger(),
+	);
 	const dailyPlanService = new DailyPlanService(
 		db,
 		dayTreeService,
 		taskService,
 		llm,
 		predictionService,
+		createTestLogger(),
 	);
 	const service = new CheckInService({
 		llmProvider: llm,
@@ -34,6 +42,7 @@ function makeService(now?: () => Date) {
 		userChatId: 100,
 		cleanupTtlMs: 900_000,
 		now,
+		logger: createTestLogger(),
 	});
 	return { service, db, llm, dayTreeService, taskService };
 }

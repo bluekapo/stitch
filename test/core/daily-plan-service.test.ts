@@ -8,6 +8,7 @@ import type { StitchDb } from '../../src/db/index.js';
 import { chunkTasks, dailyPlans, dayTrees, planChunks, tasks } from '../../src/db/schema.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 describe('DailyPlanService', () => {
 	let db: StitchDb;
@@ -19,10 +20,23 @@ describe('DailyPlanService', () => {
 	beforeEach(() => {
 		db = createTestDb();
 		llm = new MockLlmProvider();
-		dayTreeService = new DayTreeService(db, llm);
-		taskService = new TaskService(db);
-		const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
-		planService = new DailyPlanService(db, dayTreeService, taskService, llm, predictionService);
+		dayTreeService = new DayTreeService(db, llm, createTestLogger());
+		taskService = new TaskService(db, createTestLogger());
+		const predictionService = new PredictionService(
+			db,
+			taskService,
+			dayTreeService,
+			llm,
+			createTestLogger(),
+		);
+		planService = new DailyPlanService(
+			db,
+			dayTreeService,
+			taskService,
+			llm,
+			predictionService,
+			createTestLogger(),
+		);
 
 		// Set up a day tree (direct DB insert to avoid LLM call)
 		db.insert(dayTrees)
@@ -532,13 +546,20 @@ describe('DailyPlanService', () => {
 		// throws "No mock fixture registered for schema: chunk_plan".
 		const failingLlm = new MockLlmProvider();
 		// (no setFixture call — failingLlm.complete will reject)
-		const failingPredService = new PredictionService(db, taskService, dayTreeService, failingLlm);
+		const failingPredService = new PredictionService(
+			db,
+			taskService,
+			dayTreeService,
+			failingLlm,
+			createTestLogger(),
+		);
 		const failingPlanService = new DailyPlanService(
 			db,
 			dayTreeService,
 			taskService,
 			failingLlm,
 			failingPredService,
+			createTestLogger(),
 		);
 
 		// Step 3: Attempt regenerate, expect rejection
@@ -879,10 +900,23 @@ describe('DailyPlanService -- informational chunks (D-04, D-07)', () => {
 	beforeEach(() => {
 		db = createTestDb();
 		llm = new MockLlmProvider();
-		dayTreeService = new DayTreeService(db, llm);
-		taskService = new TaskService(db);
-		const predictionService = new PredictionService(db, taskService, dayTreeService, llm);
-		planService = new DailyPlanService(db, dayTreeService, taskService, llm, predictionService);
+		dayTreeService = new DayTreeService(db, llm, createTestLogger());
+		taskService = new TaskService(db, createTestLogger());
+		const predictionService = new PredictionService(
+			db,
+			taskService,
+			dayTreeService,
+			llm,
+			createTestLogger(),
+		);
+		planService = new DailyPlanService(
+			db,
+			dayTreeService,
+			taskService,
+			llm,
+			predictionService,
+			createTestLogger(),
+		);
 
 		// 3 branches: Morning (task slot), Lunch (fixed), Evening (fixed)
 		db.insert(dayTrees)

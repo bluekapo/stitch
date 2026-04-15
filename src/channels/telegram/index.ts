@@ -91,10 +91,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		await hub.sendHub(chatId, text, hubMenu, ctx);
 	});
 
-	const parser = new TaskParserService(
-		llmProvider,
-		logger.child({ service: 'TaskParserService' }),
-	);
+	const parser = new TaskParserService(llmProvider, logger.child({ service: 'TaskParserService' }));
 
 	// Voice handler: transcribe → routeTextInput → cleanup.
 	// Phase 08.4 Pitfall 5: registerVoiceHandler now takes an options object.

@@ -328,10 +328,7 @@ export class DailyPlanService {
 				insertedChunks.push(insertedChunk as PlanChunk);
 			}
 
-			log.debug(
-				{ planId: plan.id, chunks: insertedChunks.length },
-				'dailyPlan.generate:done',
-			);
+			log.debug({ planId: plan.id, chunks: insertedChunks.length }, 'dailyPlan.generate:done');
 			return { ...(plan as DailyPlan), chunks: insertedChunks };
 		});
 	}

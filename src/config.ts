@@ -4,7 +4,11 @@ const envSchema = z.object({
 	PORT: z.coerce.number().default(3000),
 	// Phase 12 (D-06): default level is `debug` so LLM I/O is visible without
 	// re-configuring at run time. Logs rotate per session, so volume is bounded.
-	LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('debug'),
+	// `silent` is a pino level that disables all output — used by tests so the
+	// pino-pretty worker transport never spins up (see createRootLogger).
+	LOG_LEVEL: z
+		.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+		.default('debug'),
 	// Phase 12 (D-01/D-05): directory that holds the rotated logs. Tests override
 	// to an os.tmpdir() subdir so real data/logs/ is never touched.
 	LOG_DIR: z.string().default('./data/logs'),

@@ -114,8 +114,17 @@ export interface CreateRootLoggerOptions {
  *
  * `colorize: false` is mandatory for file output (Pitfall 3) — ANSI
  * escapes inline in the log file make grep unreliable.
+ *
+ * When `level === 'silent'` (tests), skip the pino-pretty worker-thread
+ * transport entirely — it costs ~hundreds of ms in startup/teardown and
+ * would never receive a single line anyway. This keeps Fastify route/wake
+ * test suites well under vitest's default 10s beforeEach hook budget.
  */
 export function createRootLogger(options: CreateRootLoggerOptions): Logger {
+	if (options.level === 'silent') {
+		return pino({ level: 'silent' });
+	}
+
 	const logName = options.logName ?? 'stitch.log';
 	const destination = path.join(options.logDir, logName);
 	fs.mkdirSync(options.logDir, { recursive: true });

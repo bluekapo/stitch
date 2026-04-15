@@ -8,6 +8,7 @@ import { dayTrees, tasks } from '../../src/db/schema.js';
 import type { ChatMessage, LlmCompletionOptions, LlmProvider } from '../../src/providers/llm.js';
 import { MockLlmProvider } from '../../src/providers/mock.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 const SAMPLE_TREE = {
 	branches: [
@@ -52,10 +53,16 @@ describe('IntentClassifierService', () => {
 		db.insert(tasks).values({ name: 'Groceries', status: 'pending' }).run();
 
 		llm = new MockLlmProvider();
-		const dayTreeService = new DayTreeService(db, llm);
-		const taskService = new TaskService(db);
+		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
+		const taskService = new TaskService(db, createTestLogger());
 		const dailyPlanService = mkEmptyPlanService();
-		classifier = new IntentClassifierService(llm, dayTreeService, taskService, dailyPlanService);
+		classifier = new IntentClassifierService(
+			llm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+			dailyPlanService,
+		);
 	});
 
 	it('exports CONFIDENCE_THRESHOLD = 0.7 per D-22', () => {
@@ -229,13 +236,14 @@ describe('IntentClassifierService', () => {
 		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
 		db.insert(tasks).values({ name: 'Laundry', status: 'pending' }).run();
 		db.insert(tasks).values({ name: 'Groceries', status: 'pending' }).run();
-		const dayTreeService = new DayTreeService(db, capturingLlm);
-		const taskService = new TaskService(db);
+		const dayTreeService = new DayTreeService(db, capturingLlm, createTestLogger());
+		const taskService = new TaskService(db, createTestLogger());
 		const dailyPlanService = mkEmptyPlanService();
 		const capturingClassifier = new IntentClassifierService(
 			capturingLlm,
 			dayTreeService,
 			taskService,
+			createTestLogger(),
 			dailyPlanService,
 		);
 
@@ -270,13 +278,14 @@ describe('IntentClassifierService', () => {
 
 		const db = createTestDb();
 		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
-		const dayTreeService = new DayTreeService(db, capturingLlm);
-		const taskService = new TaskService(db);
+		const dayTreeService = new DayTreeService(db, capturingLlm, createTestLogger());
+		const taskService = new TaskService(db, createTestLogger());
 		const dailyPlanService = mkEmptyPlanService();
 		const capturingClassifier = new IntentClassifierService(
 			capturingLlm,
 			dayTreeService,
 			taskService,
+			createTestLogger(),
 			dailyPlanService,
 		);
 

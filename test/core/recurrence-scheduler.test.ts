@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RecurrenceScheduler } from '../../src/core/recurrence-scheduler.js';
 import { TaskService } from '../../src/core/task-service.js';
 import { createTestDb } from '../helpers/db.js';
+import { createTestLogger } from '../helpers/logger.js';
 
 describe('RecurrenceScheduler', () => {
 	let service: TaskService;
@@ -9,7 +10,7 @@ describe('RecurrenceScheduler', () => {
 
 	beforeEach(() => {
 		const db = createTestDb();
-		service = new TaskService(db);
+		service = new TaskService(db, createTestLogger());
 		scheduler = new RecurrenceScheduler(service);
 	});
 
