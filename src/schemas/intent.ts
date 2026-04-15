@@ -53,7 +53,13 @@ const TaskModifyBranch = z.object({
 	intent: z.literal('task_modify'),
 	confidence: z.number().min(0).max(1),
 	task_id: z.number().int().describe('id from the pending task list, never invented'),
-	action: z.enum(['done', 'postpone']).describe('done = mark complete, postpone = delay'),
+	// D-14 (Phase 12): five-value action enum. Additive extension — grammar regression
+	// risk mitigated by the Pitfall 1 smoke tests in test/schemas/intent.test.ts.
+	action: z
+		.enum(['done', 'postpone', 'delete', 'start_timer', 'stop_timer'])
+		.describe(
+			'done = mark complete, postpone = delay, delete = remove task, start_timer = start timer, stop_timer = stop timer and record duration',
+		),
 	clarification: z.string().optional(),
 });
 
@@ -79,6 +85,18 @@ const QueryViewBranch = z.object({
 	intent: z.enum(['task_query', 'tree_query', 'plan_view', 'unknown']),
 	confidence: z.number().min(0).max(1),
 	clarification: z.string().optional().describe('Required for unknown intent or low confidence'),
+	// D-16 (Phase 12): task_query-specific optional scope narrowing. Omit for all
+	// pending tasks; set to 'current_chunk' to limit the view to the active chunk.
+	scope: z
+		.enum(['all', 'current_chunk'])
+		.optional()
+		.describe('task_query only — omit for all pending; "current_chunk" narrows to the active chunk'),
+	// D-16 (Phase 12): plan_view-specific optional future-day target. Mirrors the
+	// enum on plan_regenerate so the router can reuse the same knob.
+	target_date: z
+		.enum(['today', 'tomorrow'])
+		.optional()
+		.describe('plan_view only — omit for today, "tomorrow" for the next day'),
 });
 
 export const ClassifierResponseSchema = z.discriminatedUnion('intent', [
