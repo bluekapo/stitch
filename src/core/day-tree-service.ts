@@ -60,6 +60,34 @@ export class DayTreeService {
 		return result;
 	}
 
+	/**
+	 * Phase 13 (D-12) -- Persist a pre-parsed DayTree without making an LLM call.
+	 *
+	 * Called by TreeSetupService (Plan 05) after the tree-setup LLM conversation
+	 * resolves a `propose_tree` object from the model. The LLM call (and
+	 * DayTreeLlmSchema validation) lives on TreeSetupService, so this method
+	 * is pure persistence -- matching setTree's upsert pattern exactly.
+	 *
+	 * Returns void: the caller (TreeSetupService) already has the tree object
+	 * it just committed; no need to re-fetch. (Open Question 3 resolved in RESEARCH.)
+	 *
+	 * Trust boundary: caller is responsible for validation. Do NOT call
+	 * DayTreeLlmSchema.parse here -- the tree already went through
+	 * TreeSetupResponseSchema's nested day-tree validation upstream, and
+	 * double-parsing would (a) cost cycles and (b) silently re-order keys
+	 * in ways that confuse snapshot tests.
+	 */
+	commitProposedTree(tree: DayTree, reqLogger?: Logger): void {
+		const log = reqLogger ?? this.logger;
+		log.debug({ branches: tree.branches.length }, 'dayTree.commitProposedTree:start');
+
+		// Upsert: same pattern as setTree (lines 55-57). Sync better-sqlite3.
+		this.db.delete(dayTrees).run();
+		this.db.insert(dayTrees).values({ tree }).run();
+
+		log.debug({ branches: tree.branches.length }, 'dayTree.commitProposedTree:done');
+	}
+
 	async editTree(modification: string, reqLogger?: Logger): Promise<DayTree> {
 		const log = reqLogger ?? this.logger;
 		log.debug({ modification }, 'dayTree.editTree:start');

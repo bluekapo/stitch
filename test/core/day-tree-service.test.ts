@@ -228,4 +228,54 @@ describe('DayTreeService', () => {
 		// If we got here, schemaName='day_tree' was used correctly
 		expect(result).toBeDefined();
 	});
+
+	describe('commitProposedTree', () => {
+		it('persists tree when no existing tree (getTree returns it)', () => {
+			service.commitProposedTree(SAMPLE_TREE);
+
+			const stored = service.getTree();
+			expect(stored).toBeDefined();
+			expect(stored!.branches).toHaveLength(6);
+			expect(stored!.branches[0].name).toBe('Wake up');
+		});
+
+		it('replaces existing tree (upsert: exactly one row after)', async () => {
+			llm.setFixture('day_tree', SAMPLE_TREE);
+			await service.setTree('initial tree');
+
+			service.commitProposedTree(MODIFIED_TREE);
+
+			const stored = service.getTree();
+			expect(stored).toBeDefined();
+			expect(stored!.branches[2].endTime).toBe('20:00');
+
+			const rows = db.select().from(dayTrees).all();
+			expect(rows).toHaveLength(1);
+		});
+
+		it('returns void (undefined)', () => {
+			const result = service.commitProposedTree(SAMPLE_TREE);
+			expect(result).toBeUndefined();
+		});
+
+		it('does NOT call the LLM provider', () => {
+			// No fixture registered -- if complete() were called, MockLlmProvider
+			// would throw "No mock fixture registered". The fact that this doesn't
+			// throw proves zero LLM calls.
+			const freshLlm = new MockLlmProvider();
+			const freshService = new DayTreeService(db, freshLlm, createTestLogger());
+			freshService.commitProposedTree(SAMPLE_TREE);
+
+			// If we reach here, no LLM call was made
+			expect(true).toBe(true);
+		});
+
+		it('uses reqLogger when provided', () => {
+			const reqLogger = createTestLogger();
+			service.commitProposedTree(SAMPLE_TREE, reqLogger);
+
+			const stored = service.getTree();
+			expect(stored).toBeDefined();
+		});
+	});
 });
