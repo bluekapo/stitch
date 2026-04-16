@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { ClassifierResponseSchema } from '../../src/schemas/intent.js';
+import { ClassifierResponseSchema, StepIntentSchema } from '../../src/schemas/intent.js';
 
 describe('ClassifierResponseSchema parses', () => {
 	it('parses task_create branch', () => {
@@ -140,25 +140,54 @@ describe('ClassifierResponseSchema parses', () => {
 });
 
 describe('ClassifierResponseSchema -> JSON Schema (Pitfall 1 smoke)', () => {
-	it('produces a top-level oneOf with at least 5 branches', () => {
+	it('produces a top-level oneOf with at least 8 branches', () => {
 		const jsonSchema = z.toJSONSchema(ClassifierResponseSchema, { target: 'draft-07' });
 		expect(jsonSchema).toHaveProperty('oneOf');
-		expect((jsonSchema as { oneOf: unknown[] }).oneOf.length).toBeGreaterThanOrEqual(5);
+		expect((jsonSchema as { oneOf: unknown[] }).oneOf.length).toBeGreaterThanOrEqual(8);
 	});
 
-	it('every branch has additionalProperties: false', () => {
+	it('StepIntentSchema produces oneOf with exactly 7 branches (no compound)', () => {
+		const jsonSchema = z.toJSONSchema(StepIntentSchema, { target: 'draft-07' });
+		expect(jsonSchema).toHaveProperty('oneOf');
+		expect((jsonSchema as { oneOf: unknown[] }).oneOf.length).toBe(7);
+	});
+
+	it('every top-level branch (8) has additionalProperties: false', () => {
 		const jsonSchema = z.toJSONSchema(ClassifierResponseSchema, {
 			target: 'draft-07',
 		}) as { oneOf: Array<{ additionalProperties: boolean }> };
+		expect(jsonSchema.oneOf.length).toBe(8);
 		for (const branch of jsonSchema.oneOf) {
 			expect(branch.additionalProperties).toBe(false);
 		}
 	});
 
-	it('every branch has required array containing intent and confidence', () => {
+	it('every top-level branch (8) has required array containing intent and confidence', () => {
 		const jsonSchema = z.toJSONSchema(ClassifierResponseSchema, {
 			target: 'draft-07',
 		}) as { oneOf: Array<{ required: string[] }> };
+		expect(jsonSchema.oneOf.length).toBe(8);
+		for (const branch of jsonSchema.oneOf) {
+			expect(branch.required).toContain('intent');
+			expect(branch.required).toContain('confidence');
+		}
+	});
+
+	it('every step-level branch (7) has additionalProperties: false', () => {
+		const jsonSchema = z.toJSONSchema(StepIntentSchema, {
+			target: 'draft-07',
+		}) as { oneOf: Array<{ additionalProperties: boolean }> };
+		expect(jsonSchema.oneOf.length).toBe(7);
+		for (const branch of jsonSchema.oneOf) {
+			expect(branch.additionalProperties).toBe(false);
+		}
+	});
+
+	it('every step-level branch (7) has required array containing intent and confidence', () => {
+		const jsonSchema = z.toJSONSchema(StepIntentSchema, {
+			target: 'draft-07',
+		}) as { oneOf: Array<{ required: string[] }> };
+		expect(jsonSchema.oneOf.length).toBe(7);
 		for (const branch of jsonSchema.oneOf) {
 			expect(branch.required).toContain('intent');
 			expect(branch.required).toContain('confidence');
@@ -232,6 +261,146 @@ describe('D-16: QueryViewBranch scope + target_date (Phase 12)', () => {
 			intent: 'plan_view',
 			confidence: 0.9,
 			target_date: 'yesterday',
+		});
+		expect(parsed.success).toBe(false);
+	});
+});
+
+// Phase 13 Plan 01 — Nyquist RED fixtures for tree_setup, tree_confirm, compound.
+// These tests INTENTIONALLY fail today because StepIntentSchema, TreeSetupBranch,
+// TreeConfirmBranch, and CompoundBranch don't exist yet. Waves 2-4 add them.
+
+describe('Phase 13 classifier branches', () => {
+	it('accepts tree_setup branch', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'tree_setup',
+			confidence: 0.85,
+			clarification: undefined,
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('accepts tree_confirm branch', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'tree_confirm',
+			confidence: 0.95,
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('accepts compound branch with 2 steps', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'compound',
+			confidence: 0.9,
+			steps: [
+				{
+					intent: 'task_create',
+					confidence: 0.95,
+					suggested_chunk_id: null,
+					suggested_branch_name: null,
+					is_essential: false,
+				},
+				{
+					intent: 'task_modify',
+					confidence: 0.9,
+					task_id: 7,
+					action: 'done',
+				},
+			],
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('accepts compound branch where a step is tree_setup', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'compound',
+			confidence: 0.88,
+			steps: [
+				{
+					intent: 'tree_setup',
+					confidence: 0.85,
+				},
+				{
+					intent: 'task_create',
+					confidence: 0.95,
+					suggested_chunk_id: null,
+					suggested_branch_name: null,
+					is_essential: false,
+				},
+			],
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('accepts compound with task_query step', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'compound',
+			confidence: 0.85,
+			steps: [
+				{
+					intent: 'task_create',
+					confidence: 0.9,
+					suggested_chunk_id: null,
+					suggested_branch_name: null,
+					is_essential: false,
+				},
+				{
+					intent: 'task_query',
+					confidence: 0.9,
+				},
+			],
+		});
+		expect(parsed.success).toBe(true);
+	});
+
+	it('rejects nested compound in steps[]', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'compound',
+			confidence: 0.9,
+			steps: [
+				{
+					intent: 'task_create',
+					confidence: 0.95,
+					suggested_chunk_id: null,
+					suggested_branch_name: null,
+					is_essential: false,
+				},
+				{
+					intent: 'compound',
+					confidence: 0.9,
+					steps: [
+						{
+							intent: 'task_modify',
+							confidence: 0.9,
+							task_id: 1,
+							action: 'done',
+						},
+						{
+							intent: 'task_modify',
+							confidence: 0.9,
+							task_id: 2,
+							action: 'postpone',
+						},
+					],
+				},
+			],
+		});
+		expect(parsed.success).toBe(false);
+	});
+
+	it('rejects compound with only 1 step (min 2)', () => {
+		const parsed = ClassifierResponseSchema.safeParse({
+			intent: 'compound',
+			confidence: 0.9,
+			steps: [
+				{
+					intent: 'task_create',
+					confidence: 0.95,
+					suggested_chunk_id: null,
+					suggested_branch_name: null,
+					is_essential: false,
+				},
+			],
 		});
 		expect(parsed.success).toBe(false);
 	});
