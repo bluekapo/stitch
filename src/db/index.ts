@@ -25,6 +25,7 @@ export function createDb(dbPath: string) {
 	migrateDayTreeSchema(sqlite);
 	migratePendingCleanupsSchema(sqlite);
 	migrateCheckInsSchema(sqlite);
+	migratePhase13Schema(sqlite);
 	return drizzle(sqlite, { schema });
 }
 
@@ -408,6 +409,42 @@ function migrateCheckInsSchema(sqlite: Database.Database) {
 		CREATE INDEX IF NOT EXISTS idx_check_ins_day_anchor ON check_ins(day_anchor);
 	`);
 	// No ALTER additions yet — first version of this table.
+}
+
+/**
+ * Phase 13 (D-04, D-16, D-17, D-19): sessions (app uptime log), conversations
+ * (keep-forever chat history — D-16 verbatim 7-column schema), settings (singleton flags).
+ * CREATE TABLE IF NOT EXISTS + INSERT OR IGNORE matches the hand-rolled-migration
+ * pattern used by Phase 9's migrateCheckInsSchema — no drizzle-kit push dependency
+ * (Stitch has no drizzle.config.ts; hand-rolled DDL is the established pattern).
+ */
+function migratePhase13Schema(sqlite: Database.Database) {
+	sqlite.exec(`
+		CREATE TABLE IF NOT EXISTS sessions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			started_at TEXT NOT NULL DEFAULT (datetime('now')),
+			ended_at TEXT
+		);
+		CREATE TABLE IF NOT EXISTS conversations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+			content TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			classifier_intent TEXT,
+			triggered_by TEXT CHECK (
+				triggered_by IS NULL
+				OR triggered_by IN ('first_ever', 'back_online', 'tree_missing', 'tree_setup_reply', 'tree_confirm_reply')
+			),
+			session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_conversations_session_id ON conversations(session_id);
+		CREATE TABLE IF NOT EXISTS settings (
+			id INTEGER PRIMARY KEY,
+			first_boot_shown INTEGER NOT NULL DEFAULT 0
+		);
+		INSERT OR IGNORE INTO settings (id, first_boot_shown) VALUES (1, 0);
+	`);
 }
 
 /** Create blueprint tables if they don't exist yet. */

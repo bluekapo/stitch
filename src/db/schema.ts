@@ -178,3 +178,40 @@ export const checkIns = sqliteTable('check_ins', {
 	nextCheckMinutes: integer('next_check_minutes'),
 	dayAnchor: text('day_anchor').notNull(),
 });
+
+// Phase 13 (D-19): session lifecycle log — every conversation row links here.
+export const sessions = sqliteTable('sessions', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
+	// NULL while session is active. Set on buildApp onClose (Plan 04).
+	endedAt: text('ended_at'),
+});
+
+// Phase 13 (D-16 verbatim, D-17 keep-forever): 7 columns.
+//   role         — 'user' | 'assistant' ONLY (no 'system'; D-16 defines two values).
+//   content      — the message body (NOT named `text`; D-16 names it `content`).
+//   classifier_intent — cache of classifier intent for USER rows; null for assistant rows.
+//   triggered_by — nullable enum for assistant rows surfacing why they fired.
+//   session_id   — NOT NULL (D-19 invariant) + ON DELETE CASCADE. No UX path
+//                  deletes a session row, so cascade preserves the invariant
+//                  without losing real history.
+export const conversations = sqliteTable('conversations', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	role: text('role', { enum: ['user', 'assistant'] }).notNull(),
+	content: text('content').notNull(),
+	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+	classifierIntent: text('classifier_intent'),
+	triggeredBy: text('triggered_by', {
+		enum: ['first_ever', 'back_online', 'tree_missing', 'tree_setup_reply', 'tree_confirm_reply'],
+	}),
+	sessionId: integer('session_id')
+		.notNull()
+		.references(() => sessions.id, { onDelete: 'cascade' }),
+});
+
+// Phase 13 (D-04): single-row singleton, PK always 1. Matches Phase 11 settings
+// pattern (no auto-increment; INSERT OR IGNORE seed at migration time).
+export const settings = sqliteTable('settings', {
+	id: integer('id').primaryKey(),
+	firstBootShown: integer('first_boot_shown', { mode: 'boolean' }).notNull().default(false),
+});

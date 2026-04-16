@@ -129,14 +129,17 @@ export function createTestDb() {
 		);
 		CREATE TABLE IF NOT EXISTS conversations (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			role TEXT NOT NULL,
+			role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
 			content TEXT NOT NULL,
 			created_at TEXT NOT NULL DEFAULT (datetime('now')),
 			classifier_intent TEXT,
-			triggered_by TEXT,
-			session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE
+			triggered_by TEXT CHECK (
+				triggered_by IS NULL
+				OR triggered_by IN ('first_ever', 'back_online', 'tree_missing', 'tree_setup_reply', 'tree_confirm_reply')
+			),
+			session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE
 		);
-		CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at);
+		CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at DESC);
 		CREATE INDEX IF NOT EXISTS idx_conversations_session_id ON conversations(session_id);
 		CREATE TABLE IF NOT EXISTS settings (
 			id INTEGER PRIMARY KEY,
