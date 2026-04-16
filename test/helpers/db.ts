@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import type { StitchDb } from '../../src/db/index.js';
 import * as schema from '../../src/db/schema.js';
 
 export function createTestDb() {
@@ -119,6 +120,106 @@ export function createTestDb() {
 			day_anchor TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_check_ins_day_anchor ON check_ins(day_anchor);
+
+		-- Phase 13: sessions, conversations, settings tables
+		CREATE TABLE IF NOT EXISTS sessions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			started_at TEXT NOT NULL DEFAULT (datetime('now')),
+			ended_at TEXT
+		);
+		CREATE TABLE IF NOT EXISTS conversations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			classifier_intent TEXT,
+			triggered_by TEXT,
+			session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at);
+		CREATE INDEX IF NOT EXISTS idx_conversations_session_id ON conversations(session_id);
+		CREATE TABLE IF NOT EXISTS settings (
+			id INTEGER PRIMARY KEY,
+			first_boot_shown INTEGER NOT NULL DEFAULT 0
+		);
+		INSERT OR IGNORE INTO settings (id, first_boot_shown) VALUES (1, 0);
 	`);
 	return drizzle(sqlite, { schema });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 13 Wave 0: Seed helpers for new tables (sessions, conversations, settings).
+//
+// These helpers target schema exports that do NOT exist yet (Wave 1 Plan 02
+// adds them to src/db/schema.ts). Importing them here is intentional —
+// the import failure is the expected RED state that confirms the contract.
+// ---------------------------------------------------------------------------
+
+// NOTE: These imports will fail until Wave 1 adds sessions/conversations/settings
+// to src/db/schema.ts. That is the expected Nyquist RED state.
+// Uncomment when the schema exports land:
+// import { sessions, conversations, settings } from '../../src/db/schema.js';
+
+/**
+ * Seed a sessions row. Returns the new row's id.
+ *
+ * Uses raw SQL because the Drizzle schema export does not exist yet (Wave 1).
+ * Once `sessions` is exported from schema.ts, this can be rewritten to use
+ * `db.insert(sessions)`.
+ */
+export function seedSession(
+	db: StitchDb,
+	opts: { startedAt: string; endedAt?: string | null },
+): number {
+	const result = db.$client
+		.prepare('INSERT INTO sessions (started_at, ended_at) VALUES (?, ?) RETURNING id')
+		.get(opts.startedAt, opts.endedAt ?? null) as { id: number };
+	return result.id;
+}
+
+/**
+ * Seed conversations rows. Returns ids in insertion order.
+ *
+ * Uses raw SQL because the Drizzle schema export does not exist yet (Wave 1).
+ */
+export function seedConversations(
+	db: StitchDb,
+	rows: Array<{
+		role: 'user' | 'assistant';
+		content: string;
+		sessionId: number;
+		classifierIntent?: string | null;
+		triggeredBy?: string | null;
+		createdAt?: string;
+	}>,
+): number[] {
+	const ids: number[] = [];
+	const stmt = db.$client.prepare(
+		`INSERT INTO conversations (role, content, session_id, classifier_intent, triggered_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+		 RETURNING id`,
+	);
+	for (const row of rows) {
+		const result = stmt.get(
+			row.role,
+			row.content,
+			row.sessionId,
+			row.classifierIntent ?? null,
+			row.triggeredBy ?? null,
+			row.createdAt ?? null,
+		) as { id: number };
+		ids.push(result.id);
+	}
+	return ids;
+}
+
+/**
+ * Seed or upsert the settings singleton row (id=1).
+ *
+ * Uses raw SQL because the Drizzle schema export does not exist yet (Wave 1).
+ */
+export function seedSettings(db: StitchDb, opts: { firstBootShown: boolean }): void {
+	db.$client
+		.prepare('INSERT OR REPLACE INTO settings (id, first_boot_shown) VALUES (1, ?)')
+		.run(opts.firstBootShown ? 1 : 0);
 }
