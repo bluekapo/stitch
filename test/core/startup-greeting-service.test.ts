@@ -138,18 +138,17 @@ describe('StartupGreetingService', () => {
 		expect(row.triggered_by).toBe('first_ever');
 	});
 
-	it('gap < 60s: formatGap returns empty string, user-prompt contains no gap line', async () => {
+	it('gap < 60s: formatGap returns "a moment"', () => {
 		const now = new Date('2026-04-16T12:00:00Z');
 		const lastEnd = new Date('2026-04-16T11:59:30Z'); // 30s gap
-		const gap = formatGap(30, now, lastEnd);
-		expect(gap).toBe('');
+		const gap = formatGap(lastEnd, now);
+		expect(gap).toBe('a moment');
 	});
 
 	it('gap 2h14m: formatGap returns "2h 14m"', () => {
-		const seconds = 2 * 3600 + 14 * 60;
 		const now = new Date('2026-04-16T12:00:00Z');
 		const lastEnd = new Date('2026-04-16T09:46:00Z');
-		const gap = formatGap(seconds, now, lastEnd);
+		const gap = formatGap(lastEnd, now);
 		expect(gap).toBe('2h 14m');
 	});
 
