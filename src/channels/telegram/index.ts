@@ -8,6 +8,7 @@ import type { IntentClassifierService } from '../../core/intent-classifier.js';
 import { reqId } from '../../core/logger.js';
 import { TaskParserService } from '../../core/task-parser.js';
 import type { TaskService } from '../../core/task-service.js';
+import type { TreeSetupService } from '../../core/tree-setup-service.js';
 import type { StitchDb } from '../../db/index.js';
 import type { LlmProvider } from '../../providers/llm.js';
 import type { SttProvider } from '../../providers/stt.js';
@@ -38,6 +39,9 @@ export interface TelegramSetupOptions {
 	// mutations. Optional so existing tests and non-check-in-service paths
 	// continue to work.
 	checkInService?: CheckInService;
+	// Phase 13 (D-11): TreeSetupService for conversational tree creation.
+	// Optional for backward compat with pre-Phase-13 tests.
+	treeSetupService?: TreeSetupService;
 	// D-12 (Phase 12): REQUIRED pino logger. Passed by buildApp — the Telegram
 	// channel uses it to instantiate TaskParserService (which now requires a
 	// logger) and for its own request-scoped child loggers.
@@ -55,6 +59,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 		sttProvider,
 		intentClassifierService,
 		checkInService,
+		treeSetupService,
 		logger,
 	} = options;
 
@@ -141,6 +146,7 @@ export function setupTelegramBot(options: TelegramSetupOptions): TelegramChannel
 					intentClassifierService,
 					checkInService, // Phase 9 D-05.4: forced check-in on task mutations
 					db, // Phase 10 D-18: prediction lookup for completion diff
+					treeSetupService, // Phase 13 D-11: tree_setup/tree_confirm dispatch
 					logger,
 				},
 				reqLogger,

@@ -2,13 +2,13 @@ import { desc, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import type { StitchDb } from '../db/index.js';
 import { conversations, sessions } from '../db/schema.js';
+import { withSoul } from '../prompts/soul.js';
 import {
 	TREE_SETUP_HINTS,
 	TREE_SETUP_MAX_HISTORY_CHARS,
 	TREE_SETUP_SYSTEM_PROMPT,
 	TREE_SETUP_WINDOW_ROWS,
 } from '../prompts/tree-setup.js';
-import { withSoul } from '../prompts/soul.js';
 import type { LlmProvider } from '../providers/llm.js';
 import { TreeSetupResponseSchema } from '../schemas/tree-setup.js';
 import type { DayTreeService } from './day-tree-service.js';
@@ -125,7 +125,9 @@ export class TreeSetupService {
 				this.dayTreeService.commitProposedTree(result.propose_tree, log);
 			}
 
-			// D-16: 'tree_setup_reply' when no commit on this turn; 'tree_confirm_reply' when committed.
+			// D-16: TreeSetupService always uses 'tree_setup_reply'. The
+			// 'tree_confirm_reply' value is reserved for the dispatchTreeConfirm
+			// handler (tree_confirm intent) -- a separate code path in text-router.
 			this.db
 				.insert(conversations)
 				.values({
@@ -133,13 +135,33 @@ export class TreeSetupService {
 					role: 'assistant',
 					content: result.wrapper_text,
 					classifierIntent: null,
-					triggeredBy: committed ? 'tree_confirm_reply' : 'tree_setup_reply',
+					triggeredBy: 'tree_setup_reply',
 				})
 				.run();
 		});
 
 		log.debug({ committed }, 'treeSetup.propose:done');
 		return { wrapper_text: result.wrapper_text, committed };
+	}
+
+	/**
+	 * Write a tree_confirm_reply conversations row. Called by dispatchTreeConfirm
+	 * in the text-router when the user sends a tree_confirm intent. Keeps all
+	 * conversations table writes inside this service so the router does not need
+	 * direct db access for tree-related rows.
+	 */
+	writeConfirmReply(replyText: string): void {
+		const sessionId = this.resolveCurrentSessionId();
+		this.db
+			.insert(conversations)
+			.values({
+				sessionId: sessionId ?? 0,
+				role: 'assistant',
+				content: replyText,
+				classifierIntent: null,
+				triggeredBy: 'tree_confirm_reply',
+			})
+			.run();
 	}
 
 	/** Latest open session's id, or null if none (defensive -- app.ts always starts one). */

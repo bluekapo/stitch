@@ -22,6 +22,7 @@ import {
 } from './core/sessions-repo.js';
 import { StartupGreetingService } from './core/startup-greeting-service.js';
 import { TaskService } from './core/task-service.js';
+import { TreeSetupService } from './core/tree-setup-service.js';
 import { WakeStateService } from './core/wake-state.js';
 import { createDb, type StitchDb } from './db/index.js';
 import { createLlmProvider, createSttProvider } from './providers/index.js';
@@ -157,6 +158,17 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 	});
 	app.decorate('checkInService', checkInService);
 
+	// Phase 13 (D-11): TreeSetupService -- conversational day tree creation.
+	// Constructed BEFORE the Telegram bot because setupTelegramBot threads it
+	// into TextRouterDeps for tree_setup/tree_confirm dispatch.
+	const treeSetupService = new TreeSetupService({
+		db,
+		llmProvider,
+		dayTreeService,
+		logger: rootLogger.child({ service: 'TreeSetupService' }),
+	});
+	app.decorate('treeSetupService', treeSetupService);
+
 	// Recurrence scheduler
 	const scheduler = new RecurrenceScheduler(taskService, config.RECURRENCE_CRON_TIME);
 	app.decorate('scheduler', scheduler);
@@ -175,6 +187,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 			sttProvider,
 			intentClassifierService,
 			checkInService, // Phase 9 (D-05.4): handlers fire forceCheckIn('task_action')
+			treeSetupService, // Phase 13 (D-11): tree_setup/tree_confirm dispatch
 			// Phase 12 D-12/D-11: tagged child logger so every downstream child
 			// carries `service=telegram` in addition to the per-interaction
 			// req_id synthesized at text/voice/hub-button entries.
