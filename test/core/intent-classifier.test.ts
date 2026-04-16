@@ -297,4 +297,222 @@ describe('IntentClassifierService', () => {
 		expect(opts.thinking).toBe(false);
 		expect(opts.schemaName).toBe('intent_classifier');
 	});
+
+	it('raises maxTokens to 512 for compound support', async () => {
+		let capturedOptions: LlmCompletionOptions<z.ZodType> | null = null;
+		const capturingLlm: LlmProvider = {
+			async complete<T extends z.ZodType>(options: LlmCompletionOptions<T>): Promise<z.infer<T>> {
+				capturedOptions = options as unknown as LlmCompletionOptions<z.ZodType>;
+				return options.schema.parse({
+					intent: 'task_query',
+					confidence: 0.95,
+				}) as z.infer<T>;
+			},
+			async healthCheck() {
+				return { ok: true };
+			},
+		};
+
+		const db = createTestDb();
+		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
+		const dayTreeService = new DayTreeService(db, capturingLlm, createTestLogger());
+		const taskService = new TaskService(db, createTestLogger());
+		const capturingClassifier = new IntentClassifierService(
+			capturingLlm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+			mkEmptyPlanService(),
+		);
+
+		await capturingClassifier.classify('anything');
+		const opts = capturedOptions as unknown as LlmCompletionOptions<z.ZodType>;
+		expect(opts.maxTokens).toBe(512);
+	});
+});
+
+// Phase 13 Plan 03 -- classifier behavioral tests for new intents + recent_turns prompt.
+describe('IntentClassifierService Phase 13 extensions', () => {
+	let llm: MockLlmProvider;
+	let classifier: IntentClassifierService;
+
+	beforeEach(() => {
+		const db = createTestDb();
+		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
+		db.insert(tasks).values({ name: 'Laundry', status: 'pending' }).run();
+		db.insert(tasks).values({ name: 'Groceries', status: 'pending' }).run();
+
+		llm = new MockLlmProvider();
+		const dayTreeService = new DayTreeService(db, llm, createTestLogger());
+		const taskService = new TaskService(db, createTestLogger());
+		classifier = new IntentClassifierService(
+			llm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+			mkEmptyPlanService(),
+		);
+	});
+
+	it('classifies tree_setup intent', async () => {
+		llm.setFixture('intent_classifier', {
+			intent: 'tree_setup',
+			confidence: 0.95,
+		});
+		const result = await classifier.classify("let's build a day tree");
+		expect(result.intent).toBe('tree_setup');
+		expect(result.confidence).toBeGreaterThanOrEqual(0.7);
+	});
+
+	it('classifies tree_confirm intent with recent_turns', async () => {
+		llm.setFixture('intent_classifier', {
+			intent: 'tree_confirm',
+			confidence: 0.95,
+		});
+		const result = await classifier.classify('yes commit it', undefined, [
+			'Stitch: Shall I commit that wake block?',
+		]);
+		expect(result.intent).toBe('tree_confirm');
+		expect(result.confidence).toBeGreaterThanOrEqual(0.7);
+	});
+
+	it('classifies compound intent with 2 steps', async () => {
+		llm.setFixture('intent_classifier', {
+			intent: 'compound',
+			confidence: 0.9,
+			steps: [
+				{
+					intent: 'task_create',
+					confidence: 0.9,
+					suggested_chunk_id: null,
+					suggested_branch_name: null,
+					is_essential: false,
+				},
+				{
+					intent: 'task_modify',
+					confidence: 0.9,
+					task_id: 1,
+					action: 'done',
+				},
+			],
+		});
+		const result = await classifier.classify('add groceries and mark laundry done');
+		expect(result.intent).toBe('compound');
+		if (result.intent === 'compound') {
+			expect(result.steps).toHaveLength(2);
+			expect(result.steps[0].intent).toBe('task_create');
+			expect(result.steps[1].intent).toBe('task_modify');
+		}
+	});
+
+	it('recent_turns omitted from prompt when undefined', async () => {
+		let captured: ChatMessage[] = [];
+		const capturingLlm: LlmProvider = {
+			async complete<T extends z.ZodType>(options: LlmCompletionOptions<T>): Promise<z.infer<T>> {
+				captured = options.messages;
+				return options.schema.parse({
+					intent: 'task_query',
+					confidence: 0.95,
+				}) as z.infer<T>;
+			},
+			async healthCheck() {
+				return { ok: true };
+			},
+		};
+
+		const db = createTestDb();
+		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
+		const dayTreeService = new DayTreeService(db, capturingLlm, createTestLogger());
+		const taskService = new TaskService(db, createTestLogger());
+		const capturingClassifier = new IntentClassifierService(
+			capturingLlm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+			mkEmptyPlanService(),
+		);
+
+		await capturingClassifier.classify('list tasks');
+		const userMsg = captured.find((m) => m.role === 'user');
+		expect(userMsg?.content).not.toContain('Recent conversation turns');
+	});
+
+	it('recent_turns omitted from prompt when empty array', async () => {
+		let captured: ChatMessage[] = [];
+		const capturingLlm: LlmProvider = {
+			async complete<T extends z.ZodType>(options: LlmCompletionOptions<T>): Promise<z.infer<T>> {
+				captured = options.messages;
+				return options.schema.parse({
+					intent: 'task_query',
+					confidence: 0.95,
+				}) as z.infer<T>;
+			},
+			async healthCheck() {
+				return { ok: true };
+			},
+		};
+
+		const db = createTestDb();
+		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
+		const dayTreeService = new DayTreeService(db, capturingLlm, createTestLogger());
+		const taskService = new TaskService(db, createTestLogger());
+		const capturingClassifier = new IntentClassifierService(
+			capturingLlm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+			mkEmptyPlanService(),
+		);
+
+		await capturingClassifier.classify('list tasks', undefined, []);
+		const userMsg = captured.find((m) => m.role === 'user');
+		expect(userMsg?.content).not.toContain('Recent conversation turns');
+	});
+
+	it('recent_turns included in prompt when non-empty', async () => {
+		let captured: ChatMessage[] = [];
+		const capturingLlm: LlmProvider = {
+			async complete<T extends z.ZodType>(options: LlmCompletionOptions<T>): Promise<z.infer<T>> {
+				captured = options.messages;
+				return options.schema.parse({
+					intent: 'tree_confirm',
+					confidence: 0.95,
+				}) as z.infer<T>;
+			},
+			async healthCheck() {
+				return { ok: true };
+			},
+		};
+
+		const db = createTestDb();
+		db.insert(dayTrees).values({ tree: SAMPLE_TREE }).run();
+		const dayTreeService = new DayTreeService(db, capturingLlm, createTestLogger());
+		const taskService = new TaskService(db, createTestLogger());
+		const capturingClassifier = new IntentClassifierService(
+			capturingLlm,
+			dayTreeService,
+			taskService,
+			createTestLogger(),
+			mkEmptyPlanService(),
+		);
+
+		await capturingClassifier.classify('yes commit it', undefined, [
+			'Stitch: Shall I commit that, Sir?',
+		]);
+		const userMsg = captured.find((m) => m.role === 'user');
+		expect(userMsg?.content).toContain('Recent conversation turns (oldest first):');
+		expect(userMsg?.content).toContain('Stitch: Shall I commit that, Sir?');
+	});
+
+	it('existing task_create still works (no regression)', async () => {
+		llm.setFixture('intent_classifier', {
+			intent: 'task_create',
+			confidence: 0.95,
+			suggested_chunk_id: null,
+			suggested_branch_name: null,
+			is_essential: false,
+		});
+		const result = await classifier.classify('add groceries');
+		expect(result.intent).toBe('task_create');
+	});
 });
