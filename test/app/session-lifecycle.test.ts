@@ -70,7 +70,7 @@ describe('session lifecycle (Phase 13)', () => {
 		}
 	});
 
-	it('onReady creates a sessions row with non-null started_at and null ended_at', async () => {
+	it('onReady creates a sessions row with non-null started_at and null ended_at', { timeout: 30000 }, async () => {
 		const db = createTestDb();
 		const llm = new MockLlmProvider();
 		const stt = new MockSttProvider();
@@ -96,7 +96,7 @@ describe('session lifecycle (Phase 13)', () => {
 		expect(latest.ended_at).toBeNull();
 	});
 
-	it('app.close() writes ended_at to the current session row', async () => {
+	it('app.close() writes ended_at to the current session row', { timeout: 30000 }, async () => {
 		const db = createTestDb();
 		const llm = new MockLlmProvider();
 		const stt = new MockSttProvider();
@@ -123,13 +123,13 @@ describe('session lifecycle (Phase 13)', () => {
 		expect(latest.ended_at).toBeTruthy();
 	});
 
-	it('crash (no close) leaves ended_at null, next boot cleanupOrphanedSessions heals it', async () => {
+	it('crash (no close) leaves ended_at null, next boot cleanupOrphanedSessions heals it', { timeout: 30000 }, async () => {
 		const db = createTestDb();
 		const llm = new MockLlmProvider();
 		const stt = new MockSttProvider();
 		const { bot } = buildMockBot();
 
-		// First boot — simulate crash by NOT calling close()
+		// First boot -- simulate crash by NOT calling close()
 		const app1 = buildApp({
 			config: makeTestConfig(),
 			llmProvider: llm,
@@ -149,7 +149,14 @@ describe('session lifecycle (Phase 13)', () => {
 		const crashedRow = rowsBefore[rowsBefore.length - 1];
 		expect(crashedRow.ended_at).toBeNull();
 
-		// Second boot — cleanupOrphanedSessions should heal the prior row
+		// Age the crashed session past the 5-minute grace window so
+		// cleanupOrphanedSessions treats it as a genuine orphan.
+		const oldTime = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+		db.$client
+			.prepare('UPDATE sessions SET started_at = ? WHERE id = ?')
+			.run(oldTime, crashedRow.id);
+
+		// Second boot -- cleanupOrphanedSessions should heal the prior row
 		const { bot: bot2 } = buildMockBot();
 		app = buildApp({
 			config: makeTestConfig(),

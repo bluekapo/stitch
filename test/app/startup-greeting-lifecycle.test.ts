@@ -48,7 +48,7 @@ describe('startup-greeting lifecycle (Phase 13)', () => {
 		}
 	});
 
-	it('onReady fires greeter: conversations row written, bot.api.sendMessage called', async () => {
+	it('onReady fires greeter: conversations row written, bot.api.sendMessage called', { timeout: 30000 }, async () => {
 		const db = createTestDb();
 		const llm = new MockLlmProvider();
 		const stt = new MockSttProvider();

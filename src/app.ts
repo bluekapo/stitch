@@ -11,9 +11,16 @@ import { CheckInService } from './core/check-in-service.js';
 import { DailyPlanService } from './core/daily-plan-service.js';
 import { DayTreeService } from './core/day-tree-service.js';
 import { IntentClassifierService } from './core/intent-classifier.js';
-import { createRootLogger, formatStamp, recoverOrphanedLog } from './core/logger.js';
+import { createRootLogger, formatStamp, recoverOrphanedLog, reqId } from './core/logger.js';
 import { PredictionService } from './core/prediction-service.js';
 import { RecurrenceScheduler } from './core/recurrence-scheduler.js';
+import {
+	cleanupOrphanedSessions,
+	endSession,
+	resolveLastSessionEndAt,
+	startSession,
+} from './core/sessions-repo.js';
+import { StartupGreetingService } from './core/startup-greeting-service.js';
 import { TaskService } from './core/task-service.js';
 import { WakeStateService } from './core/wake-state.js';
 import { createDb, type StitchDb } from './db/index.js';
@@ -182,6 +189,26 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 		checkInService.setHubManager(hub);
 	}
 
+	// Phase 13: StartupGreetingService -- fires once from onReady (fire-and-forget).
+	// Constructed AFTER setupTelegramBot so we can setBot synchronously on the
+	// same pattern as CheckInService. When TELEGRAM_BOT_TOKEN is not set (tests
+	// without bot), the greeter's bot is undefined -> emit skips Telegram send
+	// but still writes conversations rows.
+	const startupGreetingService = new StartupGreetingService({
+		db,
+		llmProvider,
+		dayTreeService,
+		userChatId: config.TELEGRAM_ALLOWED_USER_ID,
+		logger: rootLogger.child({ service: 'StartupGreetingService' }),
+	});
+	app.decorate('startupGreetingService', startupGreetingService);
+
+	// Late-bind the bot if one was set up. Matches CheckInService pattern exactly.
+	if (app.hasDecorator('bot')) {
+		const boundBot = (app as unknown as { bot?: Bot<StitchContext> }).bot;
+		if (boundBot) startupGreetingService.setBot(boundBot);
+	}
+
 	// Phase 9 (CHAN-02/03): WakeStateService -- request-driven, started by the
 	// POST /wake/:secret route.
 	const wakeStateService = new WakeStateService({
@@ -218,6 +245,30 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 				`STT provider unavailable: ${sttHealth.error}. App will still serve but STT calls will fail.`,
 			);
 		}
+
+		// Phase 13 (D-19): session bookkeeping.
+		// ORDER IS LOAD-BEARING:
+		//   1. cleanupOrphanedSessions BEFORE startSession -> the new row is
+		//      never itself swept by the cleanup.
+		//   2. resolveLastSessionEndAt BEFORE startSession -> the new row's
+		//      ended_at=null doesn't pollute the "most recent clean close" lookup.
+		//   3. startSession BEFORE greeter.emit -> greeter writes conversations
+		//      rows with session_id = new session id (FK must point to a live row).
+		const bootNow = new Date();
+		cleanupOrphanedSessions(db, bootNow);
+		const lastEndAt = resolveLastSessionEndAt(db, bootNow);
+		const sessionId = startSession(db, bootNow);
+		app.decorate('currentSessionId', sessionId);
+		app.log.info({ sessionId, hasLastEnd: lastEndAt !== null }, 'Session started');
+
+		// Phase 13 (D-06): fire-and-forget greeter.
+		// Fire BEFORE checkInService.start() so "welcome back" lands before
+		// any restart check-in nudge. `.catch()` swallows -- boot MUST NOT fail
+		// on LLM-down or bot-send failure (D-08 fail-closed).
+		const greeterReqLogger = rootLogger.child({ service: 'greeter', req_id: reqId() });
+		startupGreetingService
+			.emit(sessionId, lastEndAt, greeterReqLogger)
+			.catch((err) => app.log.warn({ err }, 'StartupGreetingService.emit threw'));
 
 		// Flush any pending message cleanups from previous run
 		const botInstance = (app as unknown as { bot?: Bot<StitchContext> }).bot;
@@ -265,6 +316,19 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 
 	// Stop scheduler on app close
 	app.addHook('onClose', async () => {
+		// Phase 13 (D-19): close session FIRST.
+		// Pitfall 2: UPDATE must happen BEFORE rootTransport.end() so the
+		// "session-ended" log line lands in the current session's log file.
+		const currentSessionId = (app as unknown as { currentSessionId?: number }).currentSessionId;
+		if (currentSessionId !== undefined) {
+			try {
+				endSession(db, currentSessionId, new Date());
+				app.log.info({ sessionId: currentSessionId }, 'Session ended');
+			} catch (err) {
+				app.log.warn({ err, sessionId: currentSessionId }, 'endSession failed during onClose');
+			}
+		}
+
 		scheduler.stop();
 		// Phase 9: stop the CheckInService ticker
 		try {
