@@ -269,7 +269,9 @@ async function dispatchTreeSetup(
 	const { wrapper_text, committed } = await deps.treeSetupService.propose(userText, log);
 	// Tree setup is NOT a task_action -- never trigger forceCheckIn.
 	// wasMutation=committed is semantic but forceCheckIn only fires on isTaskActionIntent intents.
-	return { reply: wrapper_text, wasMutation: committed };
+	// Escape LLM-generated wrapper_text -- index.ts sends with parse_mode:HTML and the LLM
+	// can emit `<`/`>`/`&` that break Telegram's parser (lessons.md 2026-04-14).
+	return { reply: escapeHtml(wrapper_text), wasMutation: committed };
 }
 
 // Phase 13 (D-10): tree_confirm -- user confirming a committed tree.
