@@ -7,8 +7,8 @@
  *   - At ~50 tokens/row avg -> 49 rows fits. 30 is our target with slack.
  *
  * Char budget (belt-and-suspenders on row-length outliers):
- *   - wrapper_text is capped at 2000 chars by TreeSetupResponseSchema.
- *   - Worst case 30 x 2000 = 60000 chars would blow context.
+ *   - wrapper_text is capped at 1000 chars by TreeSetupResponseSchema.
+ *   - Worst case 30 x 1000 = 30000 chars would blow context.
  *   - Trim-from-oldest until total <= 12000 chars keeps us safely under
  *     3000 tokens even at pathological lengths.
  */

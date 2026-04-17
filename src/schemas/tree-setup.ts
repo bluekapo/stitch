@@ -6,9 +6,10 @@ import { DayTreeLlmSchema } from './day-tree.js';
  *
  * wrapper_text: always present, always shown to the user verbatim.
  *   Min 1 char (LLM failure mode: empty string -- we catch it upstream
- *   and retry or fail-closed). Max 2000 chars bounds Telegram
- *   message length (4096 limit, 2000 leaves headroom for
- *   quoted tree JSON in future iterations).
+ *   and retry or fail-closed). Max 1000 chars: llama.cpp's GBNF grammar
+ *   engine refuses to compile `char{1,N}` for large N (sane-defaults
+ *   limit, llama.cpp issue #19051). 1000 stays under the threshold while
+ *   leaving plenty of room for a JARVIS-voice commit announcement.
  *
  * propose_tree: OPTIONAL + NULLABLE.
  *   - `undefined` (field absent) -- refinement turn, TreeSetupService
@@ -26,7 +27,7 @@ export const TreeSetupResponseSchema = z.object({
 	wrapper_text: z
 		.string()
 		.min(1)
-		.max(2000)
+		.max(1000)
 		.describe(
 			'JARVIS-voice reply shown to the user verbatim. Must be non-empty. Must not contain "!".',
 		),
