@@ -19,9 +19,15 @@
 import { eq } from 'drizzle-orm';
 import type { Bot } from 'grammy';
 import type { Logger } from 'pino';
+import { schedulePerMessageCleanup } from '../channels/telegram/cleanup.js';
 import type { StitchContext } from '../channels/telegram/types.js';
 import type { StitchDb } from '../db/index.js';
 import { conversations, settings } from '../db/schema.js';
+
+// Greeting messages auto-delete after this TTL so they don't stockpile across
+// reboots. Long enough that a user returning within the half-hour still sees
+// the "I'm online" marker; short enough that a day of restarts doesn't pile up.
+const GREETING_TTL_MS = 30 * 60 * 1000;
 import { formatGap, GREETER_SYSTEM_PROMPT, GreetingResponseSchema } from '../prompts/greeter.js';
 import { withSoul } from '../prompts/soul.js';
 import type { LlmProvider } from '../providers/llm.js';
@@ -126,7 +132,15 @@ export class StartupGreetingService {
 		// 4) Send to Telegram (skip when bot is not set).
 		if (this.bot) {
 			try {
-				await this.bot.api.sendMessage(this.userChatId, greeting);
+				const sentMsg = await this.bot.api.sendMessage(this.userChatId, greeting);
+				schedulePerMessageCleanup(
+					this.bot.api,
+					this.userChatId,
+					sentMsg.message_id,
+					this.db,
+					GREETING_TTL_MS,
+					log,
+				);
 			} catch (err) {
 				// Telegram down or user blocked the bot -- log and continue so we
 				// still persist the greeting to conversations (D-17 keep-forever).

@@ -14,7 +14,7 @@ import type { TaskParserService } from '../../../core/task-parser.js';
 import type { TaskService } from '../../../core/task-service.js';
 import type { TreeSetupService } from '../../../core/tree-setup-service.js';
 import type { StitchDb } from '../../../db/index.js';
-import { chunkTasks } from '../../../db/schema.js';
+import { chunkTasks, conversations } from '../../../db/schema.js';
 import type { ClassifiedIntent, StepIntent } from '../../../schemas/intent.js';
 import { buildFullDayPlanView } from '../view-builders.js';
 import {
@@ -79,6 +79,21 @@ export function readPredictionFromDb(
 		predictedMaxSeconds: row.max ?? null,
 		predictedConfidence: (row.confidence ?? null) as 'low' | 'medium' | 'high' | null,
 	};
+}
+
+// Fetch the last N conversation turns (oldest first), formatted as
+// "role: content" lines for the classifier's recent_turns prompt slot.
+// Without this, mid-tree-setup pivots like "yes flexible" get misclassified
+// as tree_confirm because the LLM has zero context about the ongoing iteration.
+export function readRecentTurns(db: StitchDb | undefined, limit: number): string[] {
+	if (!db) return [];
+	const rows = db
+		.select({ role: conversations.role, content: conversations.content })
+		.from(conversations)
+		.orderBy(desc(conversations.id))
+		.limit(limit)
+		.all();
+	return rows.reverse().map((r) => `${r.role}: ${r.content}`);
 }
 
 // ==========================================================
@@ -417,7 +432,8 @@ export async function routeTextInput(
 
 		let classified: ClassifiedIntent;
 		try {
-			classified = await deps.intentClassifierService.classify(text, log);
+			const recentTurns = readRecentTurns(deps.db, 6);
+			classified = await deps.intentClassifierService.classify(text, log, recentTurns);
 		} catch (err) {
 			log.error(
 				{ input: text.slice(0, 100), err: (err as Error).message },
